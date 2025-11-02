@@ -13,16 +13,20 @@ const createInitialJobs = (): Job[] => [
   {
     id: generateId(),
     title: 'Data Scientist - HR Analytics',
-    description: 'ניתוח נתוני גיוס, בניית מודלים וחיזוי מועמדים עם פוטנציאל גבוה.',
-    freeText: 'אנחנו מחפשים מישהי\u200f/ו עם תשוקה לאנשים ולדאטה, שיוכל לחבר מספרים לסיפור אנושי.',
+    description:
+      'Build recruiting analytics that reveal high-potential candidates and accelerate hiring outcomes.',
+    freeText:
+      'We are looking for someone who is equally passionate about people and data and can translate insights into action.',
     icon: '🧠',
     postedAt: new Date().toISOString()
   },
   {
     id: generateId(),
     title: 'Talent Acquisition Lead',
-    description: 'הובלת אסטרטגיית הגיוס הגלובלית ועבודה צמודה עם מנהלים בכירים.',
-    freeText: 'אם יש לכם יכולת לראות את הבן אדם מאחורי קורות החיים – אנחנו רוצים אתכם איתנו.',
+    description:
+      'Shape the global hiring strategy and partner closely with senior leadership to deliver exceptional talent experiences.',
+    freeText:
+      'If you are able to spot the person beyond the résumé, we would love to have you on our team.',
     icon: '🤝',
     postedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString()
   }
@@ -80,37 +84,37 @@ export const JobBoard = () => {
     setIsModalOpen(false)
   }
 
-  const headline = jobs.length ? 'המשרות הפעילות שלכם' : 'אין עדיין משרות פעילות'
+  const headline = jobs.length ? 'Your active openings' : 'No active openings yet'
 
   return (
     <div className={styles.page}>
       <section className={styles.hero}>
         <div>
           <p className={styles.tag}>AI Recruitment Hub</p>
-          <h1>ניהול משרות חכם ומהיר לצוות ה-HR</h1>
+          <h1>Smart, fast hiring for modern HR teams</h1>
           <p className={styles.subtitle}>
-            צרו, עדכנו והציגו משרות בלחיצת כפתור אחת. המערכת שלנו יודעת לחבר בין הצורך העסקי לבין
-            המועמד\u200f/ת המדויקים ביותר.
+            Create, publish, and refresh openings in a single workflow. Let the platform connect business needs with the
+            most relevant candidates.
           </p>
         </div>
         <button type="button" className={styles.createButton} onClick={handleCreateClick}>
-          + יצירת משרה חדשה
+          + Create new job
         </button>
       </section>
 
       <section className={styles.board}>
         <header className={styles.boardHeader}>
           <h2>{headline}</h2>
-          <span className={styles.counter}>{jobs.length} משרות</span>
+          <span className={styles.counter}>{jobs.length} openings</span>
         </header>
 
         {jobs.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyIcon}>✨</div>
-            <h3>בואו נתחיל!</h3>
-            <p>צרו את המשרה הראשונה שלכם ותנו לאלגוריתם שלנו להתחיל לעבוד בשבילכם.</p>
+            <h3>Let&apos;s get started!</h3>
+            <p>Create your first job and let our matching engine start working for you.</p>
             <button type="button" className={styles.emptyButton} onClick={handleCreateClick}>
-              יצירת משרה ראשונה
+              Create first job
             </button>
           </div>
         ) : (
