@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { JobCard } from '../../components/JobCard/JobCard'
+import { JobDetailsModal } from '../../components/JobDetailsModal/JobDetailsModal'
 import { JobFormModal } from '../../components/JobFormModal/JobFormModal'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
@@ -26,7 +27,7 @@ const createInitialJobs = (): Job[] => [
     description:
       'Shape the global hiring strategy and partner closely with senior leadership to deliver exceptional talent experiences.',
     freeText:
-      'If you are able to spot the person beyond the résumé, we would love to have you on our team.',
+      'If you are able to spot the person beyond the resume, we would love to have you on our team.',
     icon: '🤝',
     postedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString()
   }
@@ -37,10 +38,17 @@ export const JobBoard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [editingJobId, setEditingJobId] = useState<string | null>(null)
+  const [detailsJobId, setDetailsJobId] = useState<string | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   const editingJob = useMemo(
     () => jobs.find((job) => job.id === editingJobId) ?? null,
     [jobs, editingJobId]
+  )
+
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.id === detailsJobId) ?? null,
+    [jobs, detailsJobId]
   )
 
   const handleCreateClick = () => {
@@ -49,14 +57,28 @@ export const JobBoard = () => {
     setIsModalOpen(true)
   }
 
+  const handleCloseDetails = () => {
+    setIsDetailsOpen(false)
+    setDetailsJobId(null)
+  }
+
   const handleEditClick = (job: Job) => {
     setModalMode('edit')
     setEditingJobId(job.id)
     setIsModalOpen(true)
+    handleCloseDetails()
+  }
+
+  const handleCardOpen = (job: Job) => {
+    setDetailsJobId(job.id)
+    setIsDetailsOpen(true)
   }
 
   const handleDelete = (jobId: string) => {
     setJobs((prev) => prev.filter((job) => job.id !== jobId))
+    if (detailsJobId === jobId) {
+      handleCloseDetails()
+    }
   }
 
   const handleSubmit = (draft: JobDraft) => {
@@ -73,8 +95,7 @@ export const JobBoard = () => {
           job.id === editingJobId
             ? {
                 ...job,
-                ...draft,
-                postedAt: job.postedAt
+                ...draft
               }
             : job
         )
@@ -84,33 +105,18 @@ export const JobBoard = () => {
     setIsModalOpen(false)
   }
 
-  const headline = jobs.length ? 'Your active openings' : 'No active openings yet'
-
   return (
     <div className={styles.page}>
       <section className={styles.hero}>
-        <div>
-          <p className={styles.tag}>AI Recruitment Hub</p>
-          <h1>Smart, fast hiring for modern HR teams</h1>
-          <p className={styles.subtitle}>
-            Create, publish, and refresh openings in a single workflow. Let the platform connect business needs with the
-            most relevant candidates.
-          </p>
-        </div>
         <button type="button" className={styles.createButton} onClick={handleCreateClick}>
-          + Create new job
+          Create new job
         </button>
       </section>
 
       <section className={styles.board}>
-        <header className={styles.boardHeader}>
-          <h2>{headline}</h2>
-          <span className={styles.counter}>{jobs.length} openings</span>
-        </header>
-
         {jobs.length === 0 ? (
           <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>✨</div>
+            <div className={styles.emptyIcon}>📭</div>
             <h3>Let&apos;s get started!</h3>
             <p>Create your first job and let our matching engine start working for you.</p>
             <button type="button" className={styles.emptyButton} onClick={handleCreateClick}>
@@ -120,7 +126,13 @@ export const JobBoard = () => {
         ) : (
           <div className={styles.grid}>
             {jobs.map((job) => (
-              <JobCard key={job.id} job={job} onEdit={handleEditClick} onDelete={handleDelete} />
+              <JobCard
+                key={job.id}
+                job={job}
+                onEdit={handleEditClick}
+                onDelete={handleDelete}
+                onOpen={handleCardOpen}
+              />
             ))}
           </div>
         )}
@@ -132,6 +144,14 @@ export const JobBoard = () => {
         job={editingJob}
         onCancel={() => setIsModalOpen(false)}
         onSubmit={handleSubmit}
+      />
+
+      <JobDetailsModal
+        open={isDetailsOpen}
+        job={selectedJob}
+        onClose={handleCloseDetails}
+        onEdit={handleEditClick}
+        onDelete={handleDelete}
       />
     </div>
   )

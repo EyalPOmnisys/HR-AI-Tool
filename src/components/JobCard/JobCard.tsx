@@ -1,77 +1,139 @@
+﻿import styles from './JobCard.module.css'
+import type { KeyboardEvent, MouseEvent } from 'react'
 import type { Job } from '../../types/job'
-import styles from './JobCard.module.css'
 
 type JobCardProps = {
   job: Job
   onEdit: (job: Job) => void
   onDelete: (jobId: string) => void
+  onOpen: (job: Job) => void
 }
 
-const formatDate = (value: string) => {
-  const date = new Date(value)
-  return date.toLocaleDateString('en-US', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric'
-  })
-}
+const EditIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <path
+      d="M14.06 6.19l2.12-2.12a1.5 1.5 0 0 1 2.12 0l1.63 1.63a1.5 1.5 0 0 1 0 2.12l-2.12 2.12"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
 
-const getStatusBadge = (value: string) => {
-  const now = new Date()
-  const posted = new Date(value)
-  const diffInDays = (now.getTime() - posted.getTime()) / (1000 * 60 * 60 * 24)
+const DeleteIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      d="M5 7h14"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M10 3h4a1 1 0 0 1 1 1v2H9V4a1 1 0 0 1 1-1z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M18 7v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+)
 
-  if (diffInDays < 1) {
-    return { label: 'New', variant: 'new' as const }
+export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps) => {
+  const handleOpen = () => {
+    onOpen(job)
   }
 
-  if (diffInDays < 5) {
-    return { label: 'Updated', variant: 'updated' as const }
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onOpen(job)
+    }
   }
 
-  return { label: 'Active', variant: 'active' as const }
-}
+  const handleEdit = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    onEdit(job)
+  }
 
-export const JobCard = ({ job, onEdit, onDelete }: JobCardProps) => {
-  const status = getStatusBadge(job.postedAt)
+  const handleDelete = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    onDelete(job.id)
+  }
 
   return (
-    <article className={styles.card}>
-      <div className={styles.iconWrapper} aria-hidden>
-        <span>{job.icon}</span>
-      </div>
-
-      <div className={styles.content}>
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <div className={styles.metaRow}>
-              <span className={`${styles.status} ${styles[`status-${status.variant}`]}`}>{status.label}</span>
-              <span className={styles.meta}>Posted on {formatDate(job.postedAt)}</span>
-            </div>
-            <h3 className={styles.title} title={job.title}>
-              {job.title}
-            </h3>
+    <article
+      className={styles.card}
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={handleKeyDown}
+    >
+      <header className={styles.header}>
+        <div className={styles.titleGroup}>
+          <div className={styles.iconWrapper} aria-hidden>
+            <span>{job.icon}</span>
           </div>
-          <div className={styles.actions}>
-            <button type="button" className={styles.actionButton} onClick={() => onEdit(job)}>
-              Edit
-            </button>
-            <button
-              type="button"
-              className={`${styles.actionButton} ${styles.delete}`}
-              onClick={() => onDelete(job.id)}
-            >
-              Delete
-            </button>
-          </div>
-        </header>
-
+          <h3 className={styles.title} title={job.title}>
+            {job.title}
+          </h3>
+        </div>
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.actionButton}
+            onClick={handleEdit}
+            aria-label="Edit job"
+          >
+            <EditIcon />
+          </button>
+          <button
+            type="button"
+            className={styles.actionButton}
+            onClick={handleDelete}
+            aria-label="Delete job"
+          >
+            <DeleteIcon />
+          </button>
+        </div>
+      </header>
+      <div className={styles.body}>
         <p className={styles.description} title={job.description}>
           {job.description}
         </p>
-        <div className={styles.freeText} title={job.freeText}>
-          {job.freeText}
-        </div>
+        {job.freeText && (
+          <p className={styles.candidateMessage} title={job.freeText}>
+            {job.freeText}
+          </p>
+        )}
       </div>
     </article>
   )

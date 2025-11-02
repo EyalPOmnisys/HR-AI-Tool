@@ -1,23 +1,22 @@
 .page {
   min-height: 100vh;
   padding: 64px clamp(24px, 6vw, 96px) 96px;
-  background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 40%),
-    radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.12), transparent 45%),
-    #f8fafc;
   color: #0f172a;
   display: flex;
   flex-direction: column;
   gap: 56px;
   width: min(1120px, 100%);
   margin: 0 auto;
+  width: 100%;
 }
 
 .hero {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 32px;
   align-items: center;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .hero h1 {
@@ -48,7 +47,6 @@
 }
 
 .createButton {
-  align-self: flex-start;
   border: none;
   border-radius: 20px;
   padding: 16px 28px;
@@ -148,13 +146,7 @@
 
 @media (max-width: 960px) {
   .hero {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .createButton {
-    width: 100%;
-    text-align: center;
+    justify-content: flex-start;
   }
 }
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+﻿import { useEffect, useState } from 'react'
+import type { FormEvent, MouseEvent } from 'react'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobFormModal.module.css'
 
@@ -11,7 +11,35 @@ type JobFormModalProps = {
   onSubmit: (draft: JobDraft) => void
 }
 
-const iconOptions = ['💼', '🧑\u200d💻', '🧠', '📈', '🎯', '🛠️', '📣', '🤝', '⚡', '🚀']
+const iconOptions = [
+  '👥',
+  '🧠',
+  '💼',
+  '🛠️',
+  '📊',
+  '🤝',
+  '🚀',
+  '🔍',
+  '💡',
+  '🛡️',
+  '💻',
+  '🎯',
+  '📁',
+  '🌐'
+]
+
+const CloseIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+)
 
 export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormModalProps) => {
   const [title, setTitle] = useState('')
@@ -24,7 +52,8 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
       setTitle(job.title)
       setDescription(job.description)
       setFreeText(job.freeText)
-      setIcon(job.icon)
+      const jobIcon = job.icon && iconOptions.includes(job.icon) ? job.icon : iconOptions[0]
+      setIcon(jobIcon)
     } else {
       setTitle('')
       setDescription('')
@@ -37,6 +66,12 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
     return null
   }
 
+  const handleBackdropInteraction = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      onCancel()
+    }
+  }
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     onSubmit({ title, description, freeText, icon })
@@ -45,7 +80,13 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
   const isValid = title.trim().length > 0 && description.trim().length > 0
 
   return (
-    <div className={styles.backdrop} role="dialog" aria-modal="true">
+    <div
+      className={styles.backdrop}
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={handleBackdropInteraction}
+      onClick={handleBackdropInteraction}
+    >
       <form className={styles.modal} onSubmit={handleSubmit}>
         <header className={styles.header}>
           <div>
@@ -53,55 +94,57 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
             <p>Complete the details so candidates know exactly what you are offering.</p>
           </div>
           <button type="button" className={styles.closeButton} onClick={onCancel} aria-label="Close dialog">
-            ✕
+            <CloseIcon />
           </button>
         </header>
 
-        <div className={styles.fieldGroup}>
-          <label>
-            Job title
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Example: Senior Product Manager"
-              required
-            />
-          </label>
-          <label>
-            Short description
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="What is the core mission for this role?"
-              rows={3}
-              required
-            />
-          </label>
-          <label>
-            Candidate message
-            <textarea
-              value={freeText}
-              onChange={(event) => setFreeText(event.target.value)}
-              placeholder="What impression should candidates leave with?"
-              rows={3}
-            />
-          </label>
-        </div>
+        <div className={styles.body}>
+          <div className={styles.fieldGroup}>
+            <label>
+              Job title
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Example: Senior Product Manager"
+                required
+              />
+            </label>
+            <label>
+              Short description
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="What is the core mission for this role?"
+                rows={3}
+                required
+              />
+            </label>
+            <label>
+              Candidate message
+              <textarea
+                value={freeText}
+                onChange={(event) => setFreeText(event.target.value)}
+                placeholder="What impression should candidates leave with?"
+                rows={3}
+              />
+            </label>
+          </div>
 
-        <div className={styles.iconPicker}>
-          <span className={styles.iconLabel}>Choose an icon that reflects the role</span>
-          <div className={styles.iconGrid}>
-            {iconOptions.map((option) => (
-              <button
-                type="button"
-                key={option}
-                className={`${styles.iconButton} ${option === icon ? styles.iconSelected : ''}`}
-                onClick={() => setIcon(option)}
-                aria-pressed={option === icon}
-              >
-                {option}
-              </button>
-            ))}
+          <div className={styles.iconPicker}>
+            <span className={styles.iconLabel}>Choose an icon that reflects the role</span>
+            <div className={styles.iconGrid}>
+              {iconOptions.map((option) => (
+                <button
+                  type="button"
+                  key={option}
+                  className={`${styles.iconButton} ${option === icon ? styles.iconSelected : ''}`}
+                  onClick={() => setIcon(option)}
+                  aria-pressed={option === icon}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
