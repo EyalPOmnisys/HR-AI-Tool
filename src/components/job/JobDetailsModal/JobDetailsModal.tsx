@@ -1,6 +1,6 @@
 ﻿import styles from './JobDetailsModal.module.css'
-import type { MouseEvent } from 'react'
-import type { Job } from '../../types/job'
+import type { MouseEvent, ReactElement } from 'react'
+import type { Job } from '../../../types/job'
 
 type JobDetailsModalProps = {
   open: boolean
@@ -28,7 +28,7 @@ const CloseIcon = () => (
   </svg>
 )
 
-const formatDate = (value: string) => {
+const formatDate = (value: string): string => {
   const date = new Date(value)
   return date.toLocaleDateString('en-US', {
     day: '2-digit',
@@ -37,7 +37,7 @@ const formatDate = (value: string) => {
   })
 }
 
-export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDetailsModalProps) => {
+export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDetailsModalProps): ReactElement | null => {
   if (!open || !job) {
     return null
   }

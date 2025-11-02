@@ -4,7 +4,7 @@
   color: #0f172a;
   display: flex;
   flex-direction: column;
-  gap: 56px;
+  gap:30px;
   width: min(1120px, 100%);
   margin: 0 auto;
   width: 100%;

@@ -1,6 +1,6 @@
 ﻿import styles from './JobCard.module.css'
-import type { KeyboardEvent, MouseEvent } from 'react'
-import type { Job } from '../../types/job'
+import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
+import type { Job } from '../../../types/job'
 
 type JobCardProps = {
   job: Job
@@ -67,7 +67,7 @@ const DeleteIcon = () => (
   </svg>
 )
 
-export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps) => {
+export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactElement => {
   const handleOpen = () => {
     onOpen(job)
   }

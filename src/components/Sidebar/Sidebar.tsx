@@ -1,39 +1,38 @@
 ﻿import styles from './Sidebar.module.css'
-import type { ReactNode } from 'react'
+import type { ReactNode, ReactElement } from 'react'
+import type { ScreenId } from '../../types/navigation'
 import logo from '../../assets/logo.png'
+import { IoFileTrayStackedSharp, IoSparklesSharp } from 'react-icons/io5'
+import { MdOutlineWorkOutline } from 'react-icons/md'
 
 type SidebarProps = {
   open: boolean
   onToggle: () => void
-  activeItem: string
+  onSelect: (itemId: ScreenId) => void
+  activeItem: ScreenId
 }
 
-const DocIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden
-  >
-    <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/>
-    <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/>
-    <path d="M9 13h6M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-  </svg>
-)
-
 type NavItem = {
-  id: string
+  id: ScreenId
   icon: ReactNode
   label: string
 }
 
-const navigationItems: NavItem[] = [
+const navigationItems: readonly NavItem[] = [
+  {
+    id: 'ai-search',
+    icon: <IoSparklesSharp size={18} />,
+    label: 'AI Search'
+  },
   {
     id: 'job-board',
-    icon: <DocIcon />,
-    label: 'Job Board'
+    icon: <MdOutlineWorkOutline size={18} />,
+    label: 'Jobs'
+  },
+  {
+    id: 'resumes',
+    icon: <IoFileTrayStackedSharp size={18} />,
+    label: 'Resumes'
   }
 ]
 
@@ -56,7 +55,7 @@ const ChevronIcon = () => (
   </svg>
 )
 
-export const Sidebar = ({ open, onToggle, activeItem }: SidebarProps) => {
+export const Sidebar = ({ open, onToggle, activeItem, onSelect }: SidebarProps): ReactElement => {
   return (
     <aside className={`${styles.sidebar} ${open ? styles.open : styles.collapsed}`}>
       <div className={styles.inner}>
@@ -75,13 +74,14 @@ export const Sidebar = ({ open, onToggle, activeItem }: SidebarProps) => {
         <nav className={styles.navigation} aria-label='Main navigation'>
           <ul className={styles.navList}>
             {navigationItems.map((item) => {
-              const isActive = item.label === activeItem
+              const isActive = item.id === activeItem
               return (
                 <li key={item.id}>
                   <button
                     type='button'
                     className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                     title={item.label}
+                    onClick={() => onSelect(item.id)}
                   >
                     <span className={styles.navIcon} aria-hidden>
                       {item.icon}

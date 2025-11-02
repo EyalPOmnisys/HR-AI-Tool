@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
-import type { FormEvent, MouseEvent } from 'react'
-import type { Job, JobDraft } from '../../types/job'
+import type { FormEvent, MouseEvent, ReactElement } from 'react'
+import type { Job, JobDraft } from '../../../types/job'
 import styles from './JobFormModal.module.css'
 
 type JobFormModalProps = {
@@ -41,7 +41,7 @@ const CloseIcon = () => (
   </svg>
 )
 
-export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormModalProps) => {
+export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormModalProps): ReactElement | null => {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [freeText, setFreeText] = useState('')

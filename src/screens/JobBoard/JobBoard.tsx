@@ -1,11 +1,12 @@
-﻿import { useMemo, useState } from 'react'
-import { JobCard } from '../../components/JobCard/JobCard'
-import { JobDetailsModal } from '../../components/JobDetailsModal/JobDetailsModal'
-import { JobFormModal } from '../../components/JobFormModal/JobFormModal'
+import { useMemo, useState } from 'react'
+import type { ReactElement } from 'react'
+import { JobCard } from '../../components/job/JobCard/JobCard'
+import { JobDetailsModal } from '../../components/job/JobDetailsModal/JobDetailsModal'
+import { JobFormModal } from '../../components/job/JobFormModal/JobFormModal'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
 
-const generateId = () =>
+const generateId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2)
@@ -18,7 +19,7 @@ const createInitialJobs = (): Job[] => [
       'Build recruiting analytics that reveal high-potential candidates and accelerate hiring outcomes.',
     freeText:
       'We are looking for someone who is equally passionate about people and data and can translate insights into action.',
-    icon: '🧠',
+    icon: '??',
     postedAt: new Date().toISOString()
   },
   {
@@ -28,12 +29,12 @@ const createInitialJobs = (): Job[] => [
       'Shape the global hiring strategy and partner closely with senior leadership to deliver exceptional talent experiences.',
     freeText:
       'If you are able to spot the person beyond the resume, we would love to have you on our team.',
-    icon: '🤝',
+    icon: '??',
     postedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString()
   }
 ]
 
-export const JobBoard = () => {
+export const JobBoard = (): ReactElement => {
   const [jobs, setJobs] = useState<Job[]>(() => createInitialJobs())
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
@@ -116,7 +117,7 @@ export const JobBoard = () => {
       <section className={styles.board}>
         {jobs.length === 0 ? (
           <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>📭</div>
+            <div className={styles.emptyIcon}>??</div>
             <h3>Let&apos;s get started!</h3>
             <p>Create your first job and let our matching engine start working for you.</p>
             <button type="button" className={styles.emptyButton} onClick={handleCreateClick}>
