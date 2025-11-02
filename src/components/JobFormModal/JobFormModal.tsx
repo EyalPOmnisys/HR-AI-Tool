@@ -49,47 +49,47 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
       <form className={styles.modal} onSubmit={handleSubmit}>
         <header className={styles.header}>
           <div>
-            <h2>{mode === 'create' ? 'יצירת משרה חדשה' : 'עדכון משרה קיימת'}</h2>
-            <p>השלימו את הפרטים כדי שנוכל להציג למועמדים בדיוק את מה שאתם מחפשים.</p>
+            <h2>{mode === 'create' ? 'Create a new job' : 'Update job details'}</h2>
+            <p>Complete the details so candidates know exactly what you are offering.</p>
           </div>
-          <button type="button" className={styles.closeButton} onClick={onCancel} aria-label="סגירת החלון">
+          <button type="button" className={styles.closeButton} onClick={onCancel} aria-label="Close dialog">
             ✕
           </button>
         </header>
 
         <div className={styles.fieldGroup}>
           <label>
-            שם המשרה
+            Job title
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="לדוגמה: מנהל\u200f/ת מוצר בכיר\u200f/ה"
+              placeholder="Example: Senior Product Manager"
               required
             />
           </label>
           <label>
-            תיאור קצר
+            Short description
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="מהי המשימה העיקרית של המשרה הזו?"
+              placeholder="What is the core mission for this role?"
               rows={3}
               required
             />
           </label>
           <label>
-            טקסט חופשי למועמדים
+            Candidate message
             <textarea
               value={freeText}
               onChange={(event) => setFreeText(event.target.value)}
-              placeholder="איזה מסר תרצו שהמועמד\u200f/ת יקחו איתם?"
+              placeholder="What impression should candidates leave with?"
               rows={3}
             />
           </label>
         </div>
 
         <div className={styles.iconPicker}>
-          <span className={styles.iconLabel}>בחרו אייקון שיספר את הסיפור של המשרה</span>
+          <span className={styles.iconLabel}>Choose an icon that reflects the role</span>
           <div className={styles.iconGrid}>
             {iconOptions.map((option) => (
               <button
@@ -107,10 +107,10 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
 
         <footer className={styles.footer}>
           <button type="button" className={styles.secondary} onClick={onCancel}>
-            ביטול
+            Cancel
           </button>
           <button type="submit" className={styles.primary} disabled={!isValid}>
-            {mode === 'create' ? 'פרסום המשרה' : 'שמירת שינויים'}
+            {mode === 'create' ? 'Publish job' : 'Save changes'}
           </button>
         </footer>
       </form>
