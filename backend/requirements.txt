@@ -1,6 +1,9 @@
 fastapi
-uvicorn[standard]
-SQLAlchemy
-psycopg[binary]
-pydantic-settings
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+pydantic>=2.6
+pydantic-settings>=2.3
 python-dotenv
+requests
+alembic>=1.13

@@ -1,31 +1,56 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactElement } from 'react'
 import styles from './AISearch.module.css'
-import { analyticsByJobId, jobOptions } from '../../data/aiSearchData'
+import { analyticsByJobId } from '../../data/aiSearchData'
 import type { JobAnalytics } from '../../types/ai-search'
 import Form from '../../components/ai-search/Form/Form'
 import Loading from '../../components/ai-search/Loading/Loading'
 import Dashboard from '../../components/ai-search/Dashboard/Dashboard'
+import { listJobs, type ApiJob } from '../../services/jobs'
 
 type ViewState = 'form' | 'loading' | 'results'
 
 const loadingMessages = [
-  'Synthesising calibrated success profiles…',
-  'Mapping real-world achievements against hiring signals…',
-  'Scoring candidate resonance with leadership expectations…',
-  'Stress-testing culture add indicators…'
+  'Initiating deep search across candidate database…',
+  'Loading job requirements and company culture parameters…',
+  'Processing AI analysis on skills and experience patterns…',
+  'Filtering candidates based on qualification criteria…',
+  'Analyzing multi-layer compatibility factors…',
+  'Matching candidates to role-specific requirements…',
+  'Running comprehensive analytics on top performers…',
+  'Ranking candidates by relevance and potential fit…',
+  'Optimizing recommendations with machine learning…',
+  'Finalizing results and preparing insights dashboard…'
 ] as const
 
 export default function AISearch(): ReactElement {
-  const [selectedJobId, setSelectedJobId] = useState(jobOptions[0]?.id ?? '')
+  const [jobs, setJobs] = useState<ApiJob[]>([])
+  const [selectedJobId, setSelectedJobId] = useState('')
   const [desiredCandidates, setDesiredCandidates] = useState(3)
   const [view, setView] = useState<ViewState>('form')
-  const [activeAnalytics, setActiveAnalytics] = useState<JobAnalytics | null>(
-    analyticsByJobId[jobOptions[0]?.id ?? ''] ?? null
-  )
+  const [activeAnalytics, setActiveAnalytics] = useState<JobAnalytics | null>(null)
   const [activeLoadingMessage, setActiveLoadingMessage] = useState(0)
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadingTickerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [isLoadingJobs, setIsLoadingJobs] = useState(true)
+
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        setIsLoadingJobs(true)
+        const response = await listJobs()
+        setJobs(response.items)
+        if (response.items.length > 0) {
+          setSelectedJobId(response.items[0].id)
+        }
+      } catch (error) {
+        console.error('Failed to fetch jobs:', error)
+      } finally {
+        setIsLoadingJobs(false)
+      }
+    }
+    fetchJobs()
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -34,9 +59,9 @@ export default function AISearch(): ReactElement {
     }
   }, [])
 
-  const selectedJobOption = useMemo(
-    () => jobOptions.find((option) => option.id === selectedJobId),
-    [selectedJobId]
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.id === selectedJobId),
+    [jobs, selectedJobId]
   )
 
   const handleJobChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -49,7 +74,7 @@ export default function AISearch(): ReactElement {
       setDesiredCandidates(1)
       return
     }
-    setDesiredCandidates(Math.min(Math.max(nextValue, 1), 8))
+    setDesiredCandidates(Math.min(Math.max(nextValue, 1), 20))
   }
 
   const resetTimers = useCallback(() => {
@@ -65,13 +90,13 @@ export default function AISearch(): ReactElement {
     setView('loading')
     loadingTickerRef.current = setInterval(() => {
       setActiveLoadingMessage((previous) => (previous + 1) % loadingMessages.length)
-    }, 1600)
+    }, 2000)
     loadingTimerRef.current = setTimeout(() => {
       resetTimers()
       const analytics = analyticsByJobId[selectedJobId]
       setActiveAnalytics(analytics)
       setView('results')
-    }, 3400)
+    }, 10000)
   }
 
   const handleRunAnotherSearch = () => {
@@ -83,12 +108,7 @@ export default function AISearch(): ReactElement {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>AI Talent Search</h1>
-          <p className={styles.subtitle}>
-            Curate ready-to-run hiring shortlists with calibrated analytics, leveraging live talent signals.
-          </p>
-        </div>
+        <h1 className={styles.title}>AI Talent Search</h1>
         {view === 'results' && (
           <button
             type='button'
@@ -102,13 +122,11 @@ export default function AISearch(): ReactElement {
 
       {view === 'form' && (
         <Form
-          jobOptions={jobOptions}
+          jobs={jobs}
           selectedJobId={selectedJobId}
           desiredCandidates={desiredCandidates}
-          selectedJobOption={selectedJobOption}
-          previewHighlights={
-            selectedJobOption ? (analyticsByJobId[selectedJobOption.id]?.highlights ?? []) : []
-          }
+          selectedJob={selectedJob}
+          isLoadingJobs={isLoadingJobs}
           onJobChange={handleJobChange}
           onCandidateChange={handleCandidateChange}
           onSubmit={handleGenerate}

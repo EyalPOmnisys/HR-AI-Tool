@@ -1,11 +1,12 @@
-# path: backend/app/services/job_service.py
-# Purpose: Business logic for Jobs (validation, rules) on top of repository calls.
-# Notes: Keep thin for MVP—add rules here later (e.g., allowed status transitions).
+# Purpose: Business logic for Jobs plus AI analysis attach.
+
 from typing import Optional, Tuple
 from uuid import UUID
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.repositories import job_repo
 from app.models.job import Job
+from app.services.llm_service import analyze_job_text
 
 
 def create_job(
@@ -52,3 +53,34 @@ def update_job(
 
 def delete_job(db: Session, job: Job) -> None:
     job_repo.delete(db, job)
+
+
+def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
+    job = job_repo.get(db, job_id)
+    if not job:
+        return None
+
+    job.ai_started_at = datetime.now(timezone.utc)
+    job.ai_error = None
+    db.add(job)
+    db.commit()
+
+    try:
+        analysis_json, model_name, version = analyze_job_text(
+            title=job.title,
+            description=job.job_description,
+            free_text=job.free_text,
+        )
+        job.analysis_json = analysis_json
+        job.analysis_model = model_name
+        job.analysis_version = version
+        job.ai_finished_at = datetime.now(timezone.utc)
+        job.ai_error = None
+    except Exception as exc:
+        job.ai_finished_at = datetime.now(timezone.utc)
+        job.ai_error = str(exc)
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job

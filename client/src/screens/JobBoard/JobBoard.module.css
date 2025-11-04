@@ -1,102 +1,51 @@
 .page {
-  min-height: 100vh;
-  padding: 64px clamp(24px, 6vw, 96px) 96px;
+  padding: 16px 24px;
   color: #0f172a;
-  display: flex;
-  flex-direction: column;
-  gap:30px;
-  width: min(1120px, 100%);
-  margin: 0 auto;
-  width: 100%;
 }
 
-.hero {
+.header {
+  border-bottom: none;
+  margin-bottom: 20px;
   display: flex;
-  justify-content: flex-end;
-  gap: 32px;
+  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  width: 100%;
 }
 
-.hero h1 {
-  font-size: clamp(2.4rem, 4vw, 3.4rem);
-  margin: 12px 0 16px;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-}
-
-.subtitle {
-  max-width: 540px;
+.title {
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 28px;
   margin: 0;
-  color: #475569;
-  font-size: 1.05rem;
-  line-height: 1.6;
-}
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: rgba(59, 130, 246, 0.16);
-  color: #1d4ed8;
-  font-weight: 600;
-  font-size: 0.95rem;
 }
 
 .createButton {
+  background: #2563eb;
+  color: white;
   border: none;
-  border-radius: 20px;
-  padding: 16px 28px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #ffffff;
-  background: linear-gradient(160deg, #2563eb, #7c3aed);
-  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  padding: 10px 20px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  white-space: nowrap;
+  font-weight: 600;
+  transition: all 0.2s ease;
 }
 
 .createButton:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 24px 60px rgba(59, 130, 246, 0.25);
+  background: #1e40af;
+  transform: translateY(-1px);
 }
 
 .board {
   display: flex;
   flex-direction: column;
-  gap: 32px;
-}
-
-.boardHeader {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.boardHeader h2 {
-  margin: 0;
-  font-size: 1.6rem;
-}
-
-.counter {
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: #1f2937;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
 }
 
 .emptyState {

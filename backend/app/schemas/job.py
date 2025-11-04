@@ -1,7 +1,6 @@
-# path: backend/app/schemas/job.py
-# Purpose: Pydantic schemas (DTOs) for requests/responses around Job entity.
-# Notes: from_attributes=True enables ORM model -> schema conversion.
-from typing import Optional
+# Purpose: Pydantic DTOs for Job endpoints including AI analysis fields.
+
+from typing import Optional, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import UUID
@@ -30,6 +29,14 @@ class JobOut(BaseModel):
     free_text: Optional[str]
     icon: Optional[str]
     status: str
+
+    analysis_json: Optional[Any] = None
+    analysis_model: Optional[str] = None
+    analysis_version: Optional[int] = None
+    ai_started_at: Optional[datetime] = None
+    ai_finished_at: Optional[datetime] = None
+    ai_error: Optional[str] = None
+
     created_at: datetime
     updated_at: datetime
 

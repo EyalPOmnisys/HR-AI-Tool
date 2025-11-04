@@ -8,7 +8,7 @@ import { Resumes } from './screens/Resumes/Resumes'
 import type { ScreenId } from './types/navigation'
 
 const App = (): ReactElement => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [activePage, setActivePage] = useState<ScreenId>('ai-search')
   const sidebarWidth = isSidebarOpen ? 240 : 72
 

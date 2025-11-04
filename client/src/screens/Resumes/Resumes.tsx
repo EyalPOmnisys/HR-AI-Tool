@@ -29,9 +29,6 @@ export const Resumes = (): ReactElement => {
         <h1 id="resumes-title" className={styles.title}>
           Resumes
         </h1>
-        <p className={styles.subtitle}>
-          Browse a compact list of submitted CVs. Select a candidate to jump straight into their full resume.
-        </p>
       </header>
 
       <ul className={styles.list}>

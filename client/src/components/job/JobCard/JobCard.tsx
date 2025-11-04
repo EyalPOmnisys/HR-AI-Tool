@@ -89,6 +89,20 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
     onDelete(job.id)
   }
 
+  const analysis = job.analysis
+  const mustHaveSkills = analysis?.skills?.must_have?.slice(0, 4) ?? []
+  const niceToHaveSkills = analysis?.skills?.nice_to_have?.slice(0, 3) ?? []
+  const locations = analysis?.locations?.slice(0, 2) ?? []
+  const techStack = [
+    ...(analysis?.tech_stack?.languages ?? []),
+    ...(analysis?.tech_stack?.frameworks ?? []),
+    ...(analysis?.tech_stack?.databases ?? []),
+  ].slice(0, 5)
+  const requirements = analysis?.requirements?.slice(0, 3) ?? []
+  
+  // Use AI summary if available, otherwise fall back to original description
+  const displayDescription = analysis?.summary || job.description
+
   return (
     <article
       className={styles.card}
@@ -102,9 +116,14 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
           <div className={styles.iconWrapper} aria-hidden>
             <span>{job.icon}</span>
           </div>
-          <h3 className={styles.title} title={job.title}>
-            {job.title}
-          </h3>
+          <div className={styles.titleContent}>
+            <h3 className={styles.title} title={job.title}>
+              {job.title}
+            </h3>
+            {analysis?.organization && (
+              <p className={styles.organization}>{analysis.organization}</p>
+            )}
+          </div>
         </div>
         <div className={styles.actions}>
           <button
@@ -125,14 +144,70 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
           </button>
         </div>
       </header>
+
       <div className={styles.body}>
-        <p className={styles.description} title={job.description}>
-          {job.description}
+        <p className={styles.description} title={displayDescription}>
+          {displayDescription}
         </p>
-        {job.freeText && (
-          <p className={styles.candidateMessage} title={job.freeText}>
-            {job.freeText}
-          </p>
+
+        {locations.length > 0 && (
+          <div className={styles.locations}>
+            {locations.map((loc, idx) => (
+              <span key={idx} className={styles.locationBadge}>
+                📍 {loc}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {requirements.length > 0 && (
+          <div className={styles.requirements}>
+            <div className={styles.sectionLabel}>Key Requirements:</div>
+            <ul className={styles.requirementsList}>
+              {requirements.map((req, idx) => (
+                <li key={idx} className={styles.requirementItem}>{req}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {mustHaveSkills.length > 0 && (
+          <div className={styles.skills}>
+            <div className={styles.sectionLabel}>Must Have:</div>
+            <div className={styles.skillsList}>
+              {mustHaveSkills.map((skill, idx) => (
+                <span key={idx} className={styles.skillBadge}>
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {niceToHaveSkills.length > 0 && (
+          <div className={styles.skills}>
+            <div className={styles.sectionLabel}>Nice to Have:</div>
+            <div className={styles.skillsList}>
+              {niceToHaveSkills.map((skill, idx) => (
+                <span key={idx} className={styles.skillBadgeOptional}>
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {techStack.length > 0 && (
+          <div className={styles.techStack}>
+            <div className={styles.sectionLabel}>Tech Stack:</div>
+            <div className={styles.techList}>
+              {techStack.map((tech, idx) => (
+                <span key={idx} className={styles.techBadge}>
+                  {tech}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </article>
