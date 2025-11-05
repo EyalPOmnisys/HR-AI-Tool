@@ -1,5 +1,3 @@
-# Purpose: Business logic for Jobs plus AI analysis attach.
-
 from typing import Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
@@ -7,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.repositories import job_repo
 from app.models.job import Job
 from app.services.llm_service import analyze_job_text
+from app.services.embedding_service import get_embedding
 
 
 def create_job(
@@ -38,8 +37,14 @@ def list_jobs(db: Session, *, offset: int = 0, limit: int = 20) -> Tuple[list[Jo
 
 
 def update_job(
-    db: Session, job: Job, *, title: Optional[str], job_description: Optional[str],
-    free_text: Optional[str], icon: Optional[str], status: Optional[str]
+    db: Session,
+    job: Job,
+    *,
+    title: Optional[str],
+    job_description: Optional[str],
+    free_text: Optional[str],
+    icon: Optional[str],
+    status: Optional[str],
 ) -> Job:
     fields = dict(
         title=title.strip() if title else None,
@@ -74,11 +79,20 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         job.analysis_json = analysis_json
         job.analysis_model = model_name
         job.analysis_version = version
+
+        combined_text = " ".join(filter(None, [job.title, job.job_description, job.free_text]))
+        embedding = get_embedding(combined_text)
+        job.embedding = embedding
+
+        print(f"[Embedding] Created embedding for job '{job.title}' — length {len(embedding)}")
+
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = None
+
     except Exception as exc:
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = str(exc)
+        print(f"[Embedding] Failed to create embedding for job '{job.title}': {exc}")
 
     db.add(job)
     db.commit()

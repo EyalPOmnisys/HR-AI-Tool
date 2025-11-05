@@ -15,9 +15,20 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     frameworks = {"spark", "airflow", "flask", "django", "fastapi", "react", "vue", "angular", "node", "express", "spring", "dotnet", "nextjs", "nuxt", "tailwind", "bootstrap"}
     databases = {"sql", "postgres", "mysql", "mariadb", "mongodb", "snowflake", "bigquery", "oracle", "redis", "dynamodb", "elasticsearch"}
     cloud = {"aws", "azure", "gcp", "digitalocean", "heroku"}
-    tools = {"git", "docker", "kubernetes", "jenkins", "terraform", "ansible", "jira", "confluence", "notion", "slack", "figma"}
-    sales = {"crm", "salesforce", "hubspot", "b2b", "b2c", "marketing", "negotiation", "lead generation", "account management", "pipeline", "forecast", "cold calling"}
+    tools = {
+        "git", "docker", "kubernetes", "jenkins", "terraform", "ansible", "jira", "confluence", "notion", "slack", "figma",
+        "selenium", "cypress", "appium", "testrail", "testng", "junit", "pytest", "postman", "soapui", "jmeter", "vscode", "intellij",
+        "github", "gitlab", "bitbucket", "powershell", "bash", "shell", "excel", "powerbi", "tableau"
+    }
+    sales = {
+        "crm", "salesforce", "hubspot", "b2b", "b2c", "marketing", "negotiation", "lead generation", "account management",
+        "pipeline", "forecast", "cold calling", "business development", "customer success", "client relations", "presales", "post sales"
+    }
     data_tools = {"pandas", "numpy", "matplotlib", "powerbi", "tableau", "excel", "looker", "databricks"}
+    management = {
+        "agile", "scrum", "kanban", "ci/cd", "devops", "waterfall", "tqm", "qa strategy", "risk management", "stakeholder management",
+        "mentoring", "coaching", "leadership", "budgeting", "planning"
+    }
 
     tech.setdefault("languages", [])
     tech.setdefault("frameworks", [])
@@ -25,6 +36,7 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     tech.setdefault("cloud", [])
     tech.setdefault("tools", [])
     tech.setdefault("business", [])
+    tech.setdefault("management", [])
 
     for key, val in all_skills.items():
         if key in languages and val not in tech["languages"]:
@@ -41,6 +53,8 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
             tech["business"].append(val)
         elif key in data_tools and val not in tech["tools"]:
             tech["tools"].append(val)
+        elif key in management and val not in tech["management"]:
+            tech["management"].append(val)
 
     text_blob = " ".join(data.get("responsibilities", []) + data.get("requirements", [])).lower()
     for group, target in [
@@ -51,12 +65,13 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
         (tools, "tools"),
         (sales, "business"),
         (data_tools, "tools"),
+        (management, "management"),
     ]:
         for term in group:
             if term in text_blob and term.capitalize() not in tech[target]:
                 tech[target].append(term.capitalize())
 
-    for section in ["languages", "frameworks", "databases", "cloud", "tools", "business"]:
+    for section in ["languages", "frameworks", "databases", "cloud", "tools", "business", "management"]:
         tech[section] = sorted(list({t.strip() for t in tech[section] if t}))
 
     data["skills"]["must_have"] = [s for s in must if s]
@@ -77,7 +92,7 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     if not data.get("keywords"):
         words = [w for w in re.findall(r"[a-zA-Z]+", text_blob) if len(w) > 3]
         counter = Counter(words)
-        data["keywords"] = [w for w, c in counter.most_common(8)]
+        data["keywords"] = [w for w, c in counter.most_common(10)]
 
     if not data.get("responsibilities") and data.get("summary"):
         summary = data["summary"].lower()
@@ -90,6 +105,10 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
             base_resps.append("Perform system and software quality assurance testing")
         if "project" in summary:
             base_resps.append("Manage project timelines and deliverables")
+        if "team" in summary or "lead" in summary:
+            base_resps.append("Lead and mentor team members")
+        if "development" in summary:
+            base_resps.append("Collaborate with development and engineering teams")
         if base_resps:
             data["responsibilities"] = base_resps
 

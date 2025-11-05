@@ -1,3 +1,5 @@
+/* src/components/ai-search/Form/Form.module.css */
+
 :root {
   --primary: #3b82f6;
   --primary-light: #e0f2fe;
@@ -41,7 +43,6 @@
 .formSection {
   background: white;
   border-radius: var(--radius);
-
   padding: 20px;
 }
 
@@ -182,6 +183,29 @@
   margin: 0;
 }
 
+/* Meta pills row */
+.jobMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px 0;
+}
+
+.metaPill {
+  background: #f3f4f6;
+  color: #374151;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pillInfo {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+/* Sections */
 .section {
   margin-bottom: 20px;
 }
@@ -190,6 +214,7 @@
   margin-bottom: 0;
 }
 
+/* Badges */
 .badge {
   background: #dbeafe;
   color: #1e3a8a;
@@ -234,6 +259,40 @@
   text-transform: uppercase;
 }
 
+.badgeCloud {
+  background: #cffafe;
+  color: #155e75;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+
+.badgeTools {
+  background: #fce7f3;
+  color: #9d174d;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+
+.badgeBusiness {
+  background: #fffbeb;
+  color: #92400e;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+
+/* Skills & chips */
 .skillsGrid {
   display: flex;
   flex-wrap: wrap;
@@ -241,13 +300,23 @@
   margin-top: 12px;
 }
 
-.techList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+.skillTag {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
 }
 
+.skillTagSecondary {
+  background: #f3f4f6;
+  color: #374151;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+}
+
+/* Keywords */
 .keywordsList {
   display: flex;
   flex-wrap: wrap;
@@ -265,6 +334,7 @@
   font-weight: 500;
 }
 
+/* Lists */
 .requirementsList {
   list-style: none;
   padding: 0;
@@ -284,10 +354,11 @@
   content: "✓";
   position: absolute;
   left: 0;
-  color: var(--success);
+  color: #10b981;
   font-weight: 700;
 }
 
+/* Description / Notes */
 .description {
   background: #f9fafb;
   border-radius: 10px;
@@ -319,6 +390,7 @@
   color: var(--text);
 }
 
+/* Locations */
 .locationsList {
   display: flex;
   flex-wrap: wrap;
@@ -326,6 +398,73 @@
   margin-top: 12px;
 }
 
+.location {
+  background: #fef9c3;
+  border: 1px solid #fef08a;
+  color: #92400e;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+/* Layout helpers */
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Languages */
+.languagesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.langChip {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.langLevel {
+  background: #e5e7eb;
+  color: #374151;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Evidence (collapsible) */
+.evidence {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.evidence > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #111827;
+}
+
+.evidenceList {
+  margin: 10px 0 0 18px;
+  padding: 0;
+  list-style: disc;
+}
+
+/* Empty state */
 .emptyState {
   text-align: center;
   padding: 60px 20px;
@@ -346,28 +485,4 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.6;
-}
-
-/* Skill tags */
-.skillTag {
-  background: #dbeafe;
-  color: #1e3a8a;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-weight: 600;
-}
-
-.skillTagSecondary {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-/* Location tags */
-.location {
-  background: #fef9c3;
-  border: 1px solid #fef08a;
-  color: #92400e;
-  font-weight: 600;
-  border-radius: 8px;
-  padding: 6px 12px;
 }

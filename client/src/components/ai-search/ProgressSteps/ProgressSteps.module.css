@@ -1,0 +1,157 @@
+/* Tunables */
+:root {
+  /* Longer connector for better visual prominence */
+  --connector-length: 120px;
+  --connector-height: 3px;
+}
+
+/* Wrapper keeps the steps from stretching too far on large screens */
+.wrapper {
+  max-width: 820px;
+}
+
+.list {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0; /* connectors sit between items and define spacing */
+  padding: 0;
+  margin: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Base connector rail (light background) */
+.connector {
+  position: relative;
+  width: var(--connector-length);
+  height: var(--connector-height);
+  background: #e5e7eb;           /* light gray rail */
+  margin: 0 14px;
+  border-radius: 9999px;
+  overflow: hidden;               /* hide the filling bar edges */
+}
+
+/* The actual filling bar (color + width/animation live here) */
+.connectorBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0;                       /* default collapsed */
+  border-radius: inherit;
+}
+
+/* Completed connectors (solid green full width) */
+.barFull {
+  width: 100%;
+  background: #22c55e;           /* green-500/600 fill */
+}
+
+/* Current connector animates while loading (indigo fill) */
+.barAnim {
+  background: #6366f1;           /* indigo-500 */
+  animation: connector-fill var(--connector-duration, 15000ms) linear forwards;
+}
+
+/* Upcoming connectors stay empty */
+.barZero {
+  width: 0;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .barAnim {
+    animation: none;
+    width: 100%;
+  }
+}
+
+@keyframes connector-fill {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+/* Step content */
+.step {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.iconWrap {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+  flex: 0 0 auto;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+}
+
+.iconCompleted {
+  background: #ecfdf5;          /* soft green bg */
+  border-color: #22c55e;        /* green border */
+  color: #16a34a;               /* green icon */
+}
+
+.iconCurrent {
+  background: #eef2ff;          /* soft indigo bg */
+  border-color: #6366f1;        /* indigo border */
+  color: #4f46e5;               /* indigo icon */
+}
+
+.iconUpcoming {
+  background: #f8fafc;          /* neutral bg */
+  border-color: #e5e7eb;        /* neutral border */
+  color: #94a3b8;               /* slate icon */
+}
+
+.texts {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a; /* slate-900 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titleCurrent {
+  color: #1e40af; /* indigo-800 */
+}
+
+.status {
+  font-size: 12px;
+  line-height: 1.1;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.statusCompleted {
+  color: #16a34a; /* green-600 */
+}
+
+.statusCurrent {
+  color: #4f46e5; /* indigo-600 */
+}
+
+.statusUpcoming {
+  color: #94a3b8; /* slate-400 */
+}

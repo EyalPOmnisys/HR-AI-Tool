@@ -98,6 +98,11 @@
   text-overflow: ellipsis;
 }
 
+.organizationPlaceholder {
+  display: block;
+  height: 14px; /* כדי לשמור על גובה קבוע גם כשאין ארגון */
+}
+
 .actions {
   display: flex;
   gap: 4px;
@@ -152,6 +157,12 @@
 
 .body::-webkit-scrollbar-thumb:hover {
   background: #d1d5db;
+}
+
+.skeletonWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .description {
@@ -238,6 +249,11 @@
   color: var(--text);
   padding-left: 16px;
   position: relative;
+  display: -webkit-box;
+  -webkit-line-clamp: 1; /* חותך לרוחב הכרטיס */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .requirementItem::before {
@@ -255,7 +271,7 @@
   gap: 6px;
 }
 
-.skillsList {
+.skillsList, .techList {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
@@ -269,6 +285,9 @@
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .skillBadgeOptional {
@@ -279,6 +298,9 @@
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .techStack {
@@ -301,6 +323,9 @@
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 768px) {
@@ -309,7 +334,6 @@
     max-height: none;
     min-height: 360px;
   }
-  
   .title {
     font-size: 0.95rem;
   }

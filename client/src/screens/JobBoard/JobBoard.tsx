@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import type { ReactElement } from 'react'
 import { JobCard } from '../../components/job/JobCard/JobCard'
 import { JobDetailsModal } from '../../components/job/JobDetailsModal/JobDetailsModal'
 import { JobFormModal } from '../../components/job/JobFormModal/JobFormModal'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
-import { createJob, listJobs, updateJob, deleteJob as deleteJobApi } from '../../services/jobs'
-import type { ApiJob } from '../../services/jobs'
+import { createJob, listJobs, updateJob, deleteJob as deleteJobApi, getJob } from '../../services/jobs'
+import type { ApiJob } from '../../types/job'
 
 // Mapper: ApiJob → UI Job
 const mapApiToUi = (api: ApiJob): Job => ({
@@ -28,7 +28,9 @@ export const JobBoard = (): ReactElement => {
   const [detailsJobId, setDetailsJobId] = useState<string | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // טען את כל ה-jobs בעת טעינת הקומפוננטה
+  // simple in-flight polling refs to avoid multiple intervals
+  const pollingMapRef = useRef<Record<string, number>>({})
+
   useEffect(() => {
     const loadJobs = async () => {
       try {
@@ -91,10 +93,37 @@ export const JobBoard = (): ReactElement => {
     }
   }
 
+  // Poll for analysis_json (lightweight, 3s intervals, up to 30s)
+  const startAnalysisPolling = (jobId: string) => {
+    if (pollingMapRef.current[jobId]) return
+    let elapsed = 0
+    const intervalId = window.setInterval(async () => {
+      try {
+        const api = await getJob(jobId)
+        if (api.analysis_json) {
+          setJobs((prev) =>
+            prev.map((j) => (j.id === jobId ? mapApiToUi(api) : j))
+          )
+          clearInterval(intervalId)
+          delete pollingMapRef.current[jobId]
+        } else {
+          elapsed += 3000
+          if (elapsed >= 30000) {
+            clearInterval(intervalId)
+            delete pollingMapRef.current[jobId]
+          }
+        }
+      } catch {
+        clearInterval(intervalId)
+        delete pollingMapRef.current[jobId]
+      }
+    }, 3000)
+    pollingMapRef.current[jobId] = intervalId
+  }
+
   const handleSubmit = async (draft: JobDraft) => {
     try {
       if (modalMode === 'create') {
-        // send to backend: map UI fields → API payload
         const payload = {
           title: draft.title,
           job_description: draft.description,
@@ -105,6 +134,7 @@ export const JobBoard = (): ReactElement => {
         const created = await createJob(payload)
         const ui = mapApiToUi(created)
         setJobs((prev) => [ui, ...prev])
+        startAnalysisPolling(ui.id)
       } else if (editingJobId) {
         const payload = {
           title: draft.title,
@@ -114,9 +144,8 @@ export const JobBoard = (): ReactElement => {
         }
         const updated = await updateJob(editingJobId, payload)
         const ui = mapApiToUi(updated)
-        setJobs((prev) =>
-          prev.map((job) => (job.id === editingJobId ? ui : job))
-        )
+        setJobs((prev) => prev.map((job) => (job.id === editingJobId ? ui : job)))
+        startAnalysisPolling(ui.id)
       }
       setIsModalOpen(false)
     } catch (error) {
@@ -124,6 +153,14 @@ export const JobBoard = (): ReactElement => {
       alert('Failed to save job. Please try again.')
     }
   }
+
+  useEffect(() => {
+    return () => {
+      // cleanup polling intervals on unmount
+      Object.values(pollingMapRef.current).forEach((id) => clearInterval(id))
+      pollingMapRef.current = {}
+    }
+  }, [])
 
   return (
     <div className={styles.page}>

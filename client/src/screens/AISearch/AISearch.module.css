@@ -1,3 +1,5 @@
+/* src/pages/ai-search/AISearch.module.css */
+
 .page {
   padding: 16px 24px;
 }
@@ -8,6 +10,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;           /* smoother wrap on smaller widths */
+  flex-wrap: wrap;     /* allow the row to wrap gracefully on small screens */
 }
 
 .title {
@@ -19,6 +23,16 @@
   margin: 0;
 }
 
+/* Right side of header: ProgressSteps + optional button */
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;   /* push to the far right if space allows */
+  min-width: 0;        /* allow children to shrink */
+}
+
+/* Secondary button next to the progress bar (visible on results) */
 .secondaryButton {
   background: #2563eb;
   color: white;
@@ -29,6 +43,7 @@
   cursor: pointer;
   font-weight: 600;
   transition: all 0.2s ease;
+  white-space: nowrap; /* keep the button compact */
 }
 
 .secondaryButton:hover {
