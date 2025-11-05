@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = Field(..., description="Model used for text embeddings")
     ANALYSIS_VERSION: int = Field(default=1)
 
+    # --- CV analysis ---
+    USE_LLM_EXTRACTION: bool = True
+    EXTRACTION_VERSION: int = 1
+
     class Config:
         env_file = str(ENV_PATH)
         case_sensitive = True

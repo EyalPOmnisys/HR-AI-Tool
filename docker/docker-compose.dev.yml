@@ -1,8 +1,10 @@
+version: "3.9"
+
 networks:
-  ai_stack:
+  ai_stack: {}
 
 volumes:
-  pg_data:
+  pg_data: {}
 
 services:
   postgres:
@@ -39,16 +41,21 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile.dev
+    restart: unless-stopped
     volumes:
       - ../backend/app:/app/app
       - ../backend/alembic.ini:/app/alembic.ini
       - ../backend/alembic:/app/alembic
+      - ../backend/data/resumes:/app/data/resumes
     env_file:
       - ./.env
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
       LLM_CHAT_MODEL: ${LLM_CHAT_MODEL}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      ANALYSIS_VERSION: ${ANALYSIS_VERSION:-1}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,4 +63,32 @@ services:
       - "8000:8000"
     extra_hosts:
       - "Omniai:192.168.1.43"
+    networks: [ai_stack]
+
+  resume_watcher:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    command: bash -lc "python -m app.workers.resume_watcher"
+    restart: unless-stopped
+    volumes:
+      - ../backend/app:/app/app
+      - ../backend/alembic.ini:/app/alembic.ini
+      - ../backend/alembic:/app/alembic
+      - ../backend/data/resumes:/app/data/resumes
+    env_file:
+      - ./.env
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      LLM_CHAT_MODEL: ${LLM_CHAT_MODEL}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      ANALYSIS_VERSION: ${ANALYSIS_VERSION:-1}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PYTHONUNBUFFERED: "1"       
+      WATCHDOG_FORCE_POLLING: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "Omniai:192.168.1.43" 
     networks: [ai_stack]

@@ -8,3 +8,6 @@ python-dotenv
 requests
 alembic>=1.13
 pgvector
+pdfplumber
+python-docx
+watchdog
