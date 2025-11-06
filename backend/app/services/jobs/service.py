@@ -1,11 +1,14 @@
+"""Job service orchestrating CRUD and AI enrichment for job postings."""
 from typing import Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
-from app.repositories import job_repo
+
 from app.models.job import Job
-from app.services.llm_service import analyze_job_text
-from app.services.embedding_service import get_embedding
+from app.repositories import job_repo
+from app.services.common.embedding_client import default_embedding_client
+from app.services.jobs.analyzer import analyze_job_text
 
 
 def create_job(
@@ -61,6 +64,7 @@ def delete_job(db: Session, job: Job) -> None:
 
 
 def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
+    # Orchestrates the full AI enrichment flow so API handlers can stay thin.
     job = job_repo.get(db, job_id)
     if not job:
         return None
@@ -81,10 +85,10 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         job.analysis_version = version
 
         combined_text = " ".join(filter(None, [job.title, job.job_description, job.free_text]))
-        embedding = get_embedding(combined_text)
+        embedding = default_embedding_client.embed(combined_text)
         job.embedding = embedding
 
-        print(f"[Embedding] Created embedding for job '{job.title}' — length {len(embedding)}")
+        print(f"[Embedding] Created embedding for job '{job.title}' (length {len(embedding)})")
 
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = None

@@ -9,8 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.base import get_db
 from app.schemas.resume import ResumeDetail, ResumeListOut, ResumeSummary
-from app.services import resume_service
-
+from app.services.resumes import ingestion_pipeline as resume_service
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
 

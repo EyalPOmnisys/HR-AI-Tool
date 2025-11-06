@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.db.base import get_db, SessionLocal
 from app.schemas.job import JobCreate, JobUpdate, JobOut, JobListOut
-from app.services import job_service
+from app.services.jobs import service as job_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

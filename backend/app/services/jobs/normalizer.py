@@ -1,4 +1,5 @@
-# app/services/normalizer.py
+# app/services/jobs/normalizer.py
+# Helper functions to tidy up the job analysis JSON returned by the LLM.
 import re
 import json
 from typing import Dict, Any, List
