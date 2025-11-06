@@ -1,11 +1,35 @@
 .card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   border-radius: 16px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  height: 100%;
+  min-height: 180px;
+}
+
+.card:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 4px;
+}
+
+.clickable {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .name {
@@ -16,6 +40,32 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.profession {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background-color: #eef2ff;
 }
 
 .link {

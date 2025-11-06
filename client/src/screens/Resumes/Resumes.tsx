@@ -1,43 +1,171 @@
-import type { ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement } from 'react'
+
+import { SearchInput } from '../../components/common/SearchInput'
+import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
 import { ResumeCard } from '../../components/Resume/ResumeCard/ResumeCard'
-import type { ResumeSummary } from '../../types/resume'
+import { getResumeDetail, listResumes } from '../../services/resumes'
+import type { ResumeDetail, ResumeSummary } from '../../types/resume'
 import styles from './Resumes.module.css'
 
-const resumes: ReadonlyArray<ResumeSummary> = [
-  { id: 'noa-levy', name: 'Noa Levy', resumeUrl: 'https://example.com/cv/noa-levy.pdf' },
-  { id: 'amir-rosen', name: 'Amir Rosen', resumeUrl: 'https://example.com/cv/amir-rosen.pdf' },
-  { id: 'mira-klein', name: 'Mira Klein', resumeUrl: 'https://example.com/cv/mira-klein.pdf' },
-  { id: 'david-cohen', name: 'David Cohen', resumeUrl: 'https://example.com/cv/david-cohen.pdf' },
-  { id: 'lia-bar', name: 'Lia Bar', resumeUrl: 'https://example.com/cv/lia-bar.pdf' },
-  { id: 'tomer-shai', name: 'Tomer Shai', resumeUrl: 'https://example.com/cv/tomer-shai.pdf' },
-  { id: 'gal-oren', name: 'Gal Oren', resumeUrl: 'https://example.com/cv/gal-oren.pdf' },
-  { id: 'adi-freeman', name: 'Adi Freeman', resumeUrl: 'https://example.com/cv/adi-freeman.pdf' },
-  { id: 'rony-hazan', name: 'Rony Hazan', resumeUrl: 'https://example.com/cv/rony-hazan.pdf' },
-  { id: 'matan-sela', name: 'Matan Sela', resumeUrl: 'https://example.com/cv/matan-sela.pdf' },
-  { id: 'yael-karni', name: 'Yael Karni', resumeUrl: 'https://example.com/cv/yael-karni.pdf' },
-  { id: 'shai-bendor', name: 'Shai Bendor', resumeUrl: 'https://example.com/cv/shai-bendor.pdf' },
-  { id: 'daniela-ron', name: 'Daniela Ron', resumeUrl: 'https://example.com/cv/daniela-ron.pdf' },
-  { id: 'itai-karp', name: 'Itai Karp', resumeUrl: 'https://example.com/cv/itai-karp.pdf' },
-  { id: 'shir-ella', name: 'Shir Ella', resumeUrl: 'https://example.com/cv/shir-ella.pdf' },
-  { id: 'yonatan-lev', name: 'Yonatan Lev', resumeUrl: 'https://example.com/cv/yonatan-lev.pdf' }
-]
-
 export const Resumes = (): ReactElement => {
+  const [resumes, setResumes] = useState<ResumeSummary[]>([])
+  const [query, setQuery] = useState<string>('')
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null)
+  const [selectedResume, setSelectedResume] = useState<ResumeDetail | null>(null)
+  const [isDetailLoading, setIsDetailLoading] = useState<boolean>(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailReloadKey, setDetailReloadKey] = useState<number>(0)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const fetchResumes = async () => {
+      setIsLoading(true)
+      try {
+        const response = await listResumes(0, 100)
+        if (isMounted) {
+          setResumes(response.items)
+          setError(null)
+        }
+      } catch (err) {
+        if (isMounted) {
+          const message = err instanceof Error ? err.message : 'Failed to load resumes'
+          setError(message)
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    fetchResumes()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const handleSearchChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setQuery(event.target.value)
+  }, [])
+
+  const handleSelectResume = useCallback((resume: ResumeSummary) => {
+    setSelectedResumeId((currentId) => (currentId === resume.id ? null : resume.id))
+  }, [])
+
+  const handleClosePanel = useCallback(() => {
+    setSelectedResumeId(null)
+    setSelectedResume(null)
+    setDetailError(null)
+    setIsDetailLoading(false)
+  }, [])
+
+  const handleRetryDetail = useCallback(() => {
+    if (!selectedResumeId) return
+    setDetailReloadKey((key) => key + 1)
+  }, [selectedResumeId])
+
+  useEffect(() => {
+    if (!selectedResumeId) {
+      setSelectedResume(null)
+      setDetailError(null)
+      setIsDetailLoading(false)
+      return undefined
+    }
+
+    let isActive = true
+    setIsDetailLoading(true)
+    setDetailError(null)
+    setSelectedResume(null)
+
+    getResumeDetail(selectedResumeId)
+      .then((detail) => {
+        if (!isActive) return
+        setSelectedResume(detail)
+        setIsDetailLoading(false)
+      })
+      .catch((err) => {
+        if (!isActive) return
+        const message = err instanceof Error ? err.message : 'Failed to load resume'
+        setDetailError(message)
+        setIsDetailLoading(false)
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [selectedResumeId, detailReloadKey])
+
+  const filteredResumes = useMemo(() => {
+    if (!query.trim()) {
+      return resumes
+    }
+    const normalized = query.trim().toLowerCase()
+    return resumes.filter((resume) => {
+      const nameMatch = resume.name?.toLowerCase().includes(normalized)
+      const professionMatch = resume.profession?.toLowerCase().includes(normalized)
+      return Boolean(nameMatch || professionMatch)
+    })
+  }, [resumes, query])
+
+  const listContent = useMemo(() => {
+    if (isLoading) {
+      return <p className={styles.status}>Loading resumes...</p>
+    }
+    if (error) {
+      return <p className={`${styles.status} ${styles.error}`}>{error}</p>
+    }
+    if (filteredResumes.length === 0) {
+      return <p className={styles.status}>No resumes found.</p>
+    }
+
+    return (
+      <ul className={styles.list}>
+        {filteredResumes.map((resume) => {
+          const isActive = resume.id === selectedResumeId
+          return (
+            <li key={resume.id} className={isActive ? styles.selectedItem : undefined}>
+              <ResumeCard resume={resume} onSelect={handleSelectResume} />
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }, [filteredResumes, handleSelectResume, isLoading, error, selectedResumeId])
+
+  const isPanelOpen = Boolean(selectedResumeId)
+
   return (
     <section className={styles.page} aria-labelledby="resumes-title">
       <header className={styles.header}>
         <h1 id="resumes-title" className={styles.title}>
           Resumes
         </h1>
+        <SearchInput
+          value={query}
+          onChange={handleSearchChange}
+          placeholder="Search by name or profession"
+          className={styles.search}
+          aria-label="Search resumes"
+        />
       </header>
 
-      <ul className={styles.list}>
-        {resumes.map((resume) => (
-          <li key={resume.id}>
-            <ResumeCard resume={resume} />
-          </li>
-        ))}
-      </ul>
+      <div className={`${styles.body} ${isPanelOpen ? styles.bodyWithPanel : ''}`}>
+        <div className={styles.listWrapper}>{listContent}</div>
+        {isPanelOpen && (
+          <ResumeDetailPanel
+            resume={selectedResume}
+            isOpen={isPanelOpen}
+            isLoading={isDetailLoading}
+            error={detailError}
+            onClose={handleClosePanel}
+            onRetry={handleRetryDetail}
+          />
+        )}
+      </div>
     </section>
   )
 }

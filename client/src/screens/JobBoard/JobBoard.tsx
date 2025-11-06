@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ChangeEvent } from 'react'
 import { JobCard } from '../../components/job/JobCard/JobCard'
 import { JobDetailsModal } from '../../components/job/JobDetailsModal/JobDetailsModal'
 import { JobFormModal } from '../../components/job/JobFormModal/JobFormModal'
+import { SearchInput } from '../../components/common/SearchInput/SearchInput'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
 import { createJob, listJobs, updateJob, deleteJob as deleteJobApi, getJob } from '../../services/jobs'
@@ -27,6 +28,7 @@ export const JobBoard = (): ReactElement => {
   const [editingJobId, setEditingJobId] = useState<string | null>(null)
   const [detailsJobId, setDetailsJobId] = useState<string | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // simple in-flight polling refs to avoid multiple intervals
   const pollingMapRef = useRef<Record<string, number>>({})
@@ -56,6 +58,21 @@ export const JobBoard = (): ReactElement => {
     () => jobs.find((job) => job.id === detailsJobId) ?? null,
     [jobs, detailsJobId]
   )
+
+  const filteredJobs = useMemo(() => {
+    if (!searchQuery.trim()) return jobs
+    const query = searchQuery.toLowerCase()
+    return jobs.filter(
+      (job) =>
+        job.title.toLowerCase().includes(query) ||
+        job.description.toLowerCase().includes(query) ||
+        job.freeText.toLowerCase().includes(query)
+    )
+  }, [jobs, searchQuery])
+
+  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value)
+  }
 
   const handleCreateClick = () => {
     setModalMode('create')
@@ -166,6 +183,11 @@ export const JobBoard = (): ReactElement => {
     <div className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>Job Board</h1>
+        <SearchInput
+          value={searchQuery}
+          onChange={handleSearchChange}
+          placeholder="Search jobs..."
+        />
         <button type="button" className={styles.createButton} onClick={handleCreateClick}>
           Create New Job
         </button>
@@ -186,9 +208,15 @@ export const JobBoard = (): ReactElement => {
               Create first job
             </button>
           </div>
+        ) : filteredJobs.length === 0 ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>🔍</div>
+            <h3>No jobs found</h3>
+            <p>Try adjusting your search query.</p>
+          </div>
         ) : (
           <div className={styles.grid}>
-            {jobs.map((job) => (
+            {filteredJobs.map((job) => (
               <JobCard
                 key={job.id}
                 job={job}

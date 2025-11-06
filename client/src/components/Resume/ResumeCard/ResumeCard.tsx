@@ -1,9 +1,10 @@
+import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
 import type { ResumeSummary } from '../../../types/resume'
-import type { ReactElement } from 'react'
 import styles from './ResumeCard.module.css'
 
 type ResumeCardProps = {
   resume: ResumeSummary
+  onSelect?: (resume: ResumeSummary) => void
 }
 
 const ExternalLinkIcon = () => (
@@ -38,16 +39,65 @@ const ExternalLinkIcon = () => (
   </svg>
 )
 
-export const ResumeCard = ({ resume }: ResumeCardProps): ReactElement => {
-  const { name, resumeUrl } = resume
+export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement => {
+  const { name, profession, yearsOfExperience, resumeUrl } = resume
+  const displayName = name ?? 'Unnamed candidate'
+
+  const yearsLabel =
+    typeof yearsOfExperience === 'number' ? `${yearsOfExperience} yrs experience` : null
+  const isInteractive = typeof onSelect === 'function'
+
+  const handleSelect = () => {
+    if (onSelect) {
+      onSelect(resume)
+    }
+  }
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!isInteractive) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleSelect()
+    }
+  }
+
+  const handleLinkClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.stopPropagation()
+  }
 
   return (
-    <article className={styles.card}>
-      <h2 className={styles.name} title={name}>
-        {name}
-      </h2>
-      <a className={styles.link} href={resumeUrl} target="_blank" rel="noreferrer">
-        View CV
+    <article
+      className={`${styles.card} ${isInteractive ? styles.clickable : ''}`}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onClick={isInteractive ? handleSelect : undefined}
+      onKeyDown={handleKeyDown}
+    >
+      <div className={styles.header}>
+        <h2 className={styles.name} title={displayName}>
+          {displayName}
+        </h2>
+        {profession && (
+          <p className={styles.profession} title={profession}>
+            {profession}
+          </p>
+        )}
+      </div>
+
+      {yearsLabel && (
+        <div className={styles.meta}>
+          <span className={styles.metaItem}>{yearsLabel}</span>
+        </div>
+      )}
+
+      <a
+        className={styles.link}
+        href={resumeUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={handleLinkClick}
+      >
+        Download PDF
         <ExternalLinkIcon />
       </a>
     </article>

@@ -1,0 +1,1 @@
+export { ResumeDetailPanel } from './ResumeDetailPanel';
