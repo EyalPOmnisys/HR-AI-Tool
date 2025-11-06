@@ -20,6 +20,8 @@ export type CandidateProfile = {
   strengths: string[]
   notes: string
   resumeUrl: string
+  phone: string
+  email: string
 }
 
 export type JobAnalytics = {

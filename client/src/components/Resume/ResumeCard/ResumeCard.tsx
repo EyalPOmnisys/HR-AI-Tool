@@ -1,4 +1,5 @@
 import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
+import { FaUser, FaBriefcase, FaClock, FaExternalLinkAlt } from 'react-icons/fa'
 import type { ResumeSummary } from '../../../types/resume'
 import styles from './ResumeCard.module.css'
 
@@ -7,44 +8,13 @@ type ResumeCardProps = {
   onSelect?: (resume: ResumeSummary) => void
 }
 
-const ExternalLinkIcon = () => (
-  <svg
-    className={styles.linkIcon}
-    viewBox="0 0 20 20"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden
-  >
-    <path
-      d="M11.25 3.75H16.25V8.75"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M8.75 11.25L16.25 3.75"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M9.99998 5H5.83331C4.45259 5 3.33331 6.11929 3.33331 7.5V14.1667C3.33331 15.5474 4.45259 16.6667 5.83331 16.6667H12.5C13.8807 16.6667 15 15.5474 15 14.1667V10"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-)
-
 export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement => {
   const { name, profession, yearsOfExperience, resumeUrl } = resume
   const displayName = name ?? 'Unnamed candidate'
+  const displayProfession = profession ?? 'Professional'
 
   const yearsLabel =
-    typeof yearsOfExperience === 'number' ? `${yearsOfExperience} yrs experience` : null
+    typeof yearsOfExperience === 'number' ? `${yearsOfExperience} years` : 'Not specified'
   const isInteractive = typeof onSelect === 'function'
 
   const handleSelect = () => {
@@ -73,33 +43,45 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
       onClick={isInteractive ? handleSelect : undefined}
       onKeyDown={handleKeyDown}
     >
-      <div className={styles.header}>
-        <h2 className={styles.name} title={displayName}>
-          {displayName}
-        </h2>
-        {profession && (
-          <p className={styles.profession} title={profession}>
-            {profession}
-          </p>
-        )}
+      <div className={styles.avatarSection}>
+        <div className={styles.avatar}>
+          <FaUser className={styles.userIcon} />
+        </div>
       </div>
 
-      {yearsLabel && (
-        <div className={styles.meta}>
-          <span className={styles.metaItem}>{yearsLabel}</span>
+      <div className={styles.content}>
+        <div className={styles.header}>
+          <h2 className={styles.name} title={displayName}>
+            {displayName}
+          </h2>
         </div>
-      )}
 
-      <a
-        className={styles.link}
-        href={resumeUrl}
-        target="_blank"
-        rel="noreferrer"
-        onClick={handleLinkClick}
-      >
-        Download PDF
-        <ExternalLinkIcon />
-      </a>
+        <div className={styles.meta}>
+          <div className={styles.metaItem}>
+            <FaBriefcase className={styles.icon} />
+            <span title={displayProfession}>{displayProfession}</span>
+          </div>
+
+          <div className={styles.metaItem}>
+            <FaClock className={styles.icon} />
+            <span>{yearsLabel}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.footer}>
+        <a
+          className={styles.link}
+          href={resumeUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={handleLinkClick}
+          title="Download resume PDF"
+        >
+          <span>Download</span>
+          <FaExternalLinkAlt className={styles.linkIcon} />
+        </a>
+      </div>
     </article>
   )
 }
