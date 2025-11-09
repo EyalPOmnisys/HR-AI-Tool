@@ -1,3 +1,8 @@
+// src/services/resumes.ts
+// -----------------------------------------------------------------------------
+// Maps new backend fields: years_by_category -> yearsByCategory, primary_years -> primaryYears.
+// Keeps existing yearsOfExperience for backward-compat.
+// -----------------------------------------------------------------------------
 import type {
   ApiResumeDetail,
   ApiResumeListResponse,
@@ -10,12 +15,8 @@ import type {
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 
 const normalizeUrl = (value: string): string => {
-  if (!value) {
-    return value;
-  }
-  if (/^https?:\/\//i.test(value)) {
-    return value;
-  }
+  if (!value) return value;
+  if (/^https?:\/\//i.test(value)) return value;
   const base = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
   const suffix = value.startsWith('/') ? value : `/${value}`;
   return `${base}${suffix}`;
@@ -27,6 +28,8 @@ const mapSummary = (item: ApiResumeSummary): ResumeSummary => ({
   profession: item.profession,
   yearsOfExperience: item.years_of_experience,
   resumeUrl: normalizeUrl(item.resume_url),
+  // NEW:
+  yearsByCategory: item.years_by_category ?? {},
 });
 
 export async function listResumes(offset = 0, limit = 50): Promise<ResumeListResponse> {
@@ -80,6 +83,9 @@ const mapDetail = (item: ApiResumeDetail): ResumeDetail => ({
   languages: item.languages,
   createdAt: item.created_at,
   updatedAt: item.updated_at,
+  // NEW:
+  yearsByCategory: item.years_by_category ?? {},
+  primaryYears: item.primary_years ?? null,
 });
 
 export async function getResumeDetail(resumeId: string): Promise<ResumeDetail> {

@@ -1,3 +1,8 @@
+// src/components/Resume/ResumeDetail/ResumeDetailPanel.tsx
+// -----------------------------------------------------------------------------
+// Shows Primary years (if provided) and a per-category breakdown (chips).
+// Falls back to legacy yearsOfExperience when primaryYears is null.
+// -----------------------------------------------------------------------------
 import { useMemo, type ReactElement } from 'react';
 
 import type { ResumeDetail } from '../../../types/resume';
@@ -41,9 +46,20 @@ export const ResumeDetailPanel = ({
   }, [resume?.resumeUrl, resume?.updatedAt]);
 
   const contactItems = useMemo(
-    () => (resume?.contacts ?? []).filter(c => c.type === 'email' || c.type === 'phone'),
+    () => (resume?.contacts ?? []).filter((c) => c.type === 'email' || c.type === 'phone'),
     [resume?.contacts]
   );
+
+  // NEW: pick primary years (domain-aware), fallback to legacy total
+  const primaryYears = resume?.primaryYears ?? resume?.yearsOfExperience ?? null;
+
+  // NEW: years by category chips (hide zeros)
+  const categoryChips = useMemo(() => {
+    const entries = Object.entries(resume?.yearsByCategory ?? {});
+    return entries
+      .filter(([, yrs]) => typeof yrs === 'number' && yrs > 0)
+      .sort((a, b) => b[1] - a[1]); // largest first
+  }, [resume?.yearsByCategory]);
 
   return (
     <aside className={styles.panel} aria-label="Resume details">
@@ -82,15 +98,28 @@ export const ResumeDetailPanel = ({
                 </button>
               </div>
             </header>
-            {(resume.yearsOfExperience != null) && (
+
+            {(primaryYears != null || categoryChips.length > 0) && (
               <section className={styles.section}>
                 <h3 className={styles.sectionTitle}>Overview</h3>
                 <ul className={styles.metaList}>
-                  <li>
-                    <span className={styles.metaLabel}>Experience</span>
-                    <span className={styles.metaValue}>{resume.yearsOfExperience} years</span>
-                  </li>
+                  {primaryYears != null && (
+                    <li>
+                      <span className={styles.metaLabel}>Experience (primary)</span>
+                      <span className={styles.metaValue}>{primaryYears} years</span>
+                    </li>
+                  )}
                 </ul>
+
+                {categoryChips.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                    {categoryChips.map(([cat, yrs]) => (
+                      <span key={cat} className={styles.skillChip} title={`${cat}: ${yrs} years`}>
+                        {cat}: {yrs}y
+                      </span>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 
@@ -211,7 +240,6 @@ export const ResumeDetailPanel = ({
               </section>
             )}
           </div>
-
 
           <div className={styles.pdfWrapper}>
             <iframe

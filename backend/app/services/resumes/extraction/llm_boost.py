@@ -1,141 +1,479 @@
-"""LLM-based post-processing to fill resume fields missing from deterministic parsing."""
+# app/services/resumes/extraction/llm_boost.py
+# -----------------------------------------------------------------------------
+# PURPOSE (English-only header)
+# End-to-end LLM pipeline with strict validation, reliable merging and duration
+# recomputation. This version fixes:
+# 1) Education must never contribute to experience years (especially "tech").
+# 2) Roles with end_date like "present/current/now" are computed up to now.
+# 3) primary_years is only set for "tech" if there are actual tech roles.
+# 4) Contacts/skills from the deterministic SAFE base are always merged back
+#    when missing from the LLM result.
+# 5) Section headers (e.g., "Projects") never leak into roles.
+# 6) Dates are normalized and years are recalculated from extraction.experience.
+# The LLM is called in two steps: (1) structured extraction, (2) clustering.
+# We then rebuild/clean the clusters by matching ONLY actual experience roles,
+# re-summing years by category, and rejecting anything tied to education.
+# On repeated LLM failure, we fall back to a safe-minimal JSON.
+#
+# Note on factoring: soft-matching helpers (_norm_text/_jaccard/_soft_match_role)
+# are kept here for now but were written to be trivially extracted into a utils
+# module (e.g., app/services/resumes/utils/matching.py) without changing callers.
+# -----------------------------------------------------------------------------
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import math
+import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.services.common.llm_client import default_llm_client, load_prompt
 
-# Keeping the prompt on disk ensures every LLM instruction lives under app/prompts.
 RESUME_EXTRACTION_PROMPT = load_prompt("resumes/resume_extraction.prompt.txt")
+EXPERIENCE_CLUSTERING_PROMPT = load_prompt("resumes/experience_clustering.prompt.txt")
+
+BANNED_ROLE_TITLES = {
+    "projects", "experience", "education", "skills", "summary",
+    "פרויקטים", "ניסיון", "השכלה", "מיומנויות", "סיכום"
+}
+ALLOWED_CATEGORIES = {"tech", "military", "hospitality", "other"}
+
+LLM_TIMEOUT_S = 90
+RETRIES = 2
 
 
-def _dedupe_list_of_dicts(items: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
-    """
-    Deduplicate dictionaries by a given key (case-insensitive for strings).
-    Keeps first occurrence, preserves order.
-    """
-    seen = set()
-    out: List[Dict[str, Any]] = []
-    for it in items or []:
-        v = it.get(key)
-        if isinstance(v, str):
-            k = v.strip().lower()
-        else:
-            k = str(v)
-        if k in seen:
+def _is_number(x: Any) -> bool:
+    try:
+        return isinstance(x, (int, float)) and not math.isnan(float(x)) and math.isfinite(float(x))
+    except Exception:
+        return False
+
+
+def _normalize_il_phone(value: str) -> str:
+    """Normalize Israeli phone numbers into +972XXXXXXXXX where possible."""
+    v = "".join(ch for ch in value if ch.isdigit() or ch == "+")
+    if v.startswith("+"):
+        digits = "".join(ch for ch in v if ch.isdigit())
+        return "+" + digits
+    digits = "".join(ch for ch in v if ch.isdigit())
+    if digits.startswith("0") and 8 <= len(digits) - 1 <= 9:
+        return "+972" + digits[1:]
+    return "+" + digits if digits else value
+
+
+def _lc(s: Optional[str]) -> Optional[str]:
+    return s.lower() if isinstance(s, str) else s
+
+
+def _parse_date(raw: Any) -> Optional[datetime]:
+    """Parse multiple loose formats including YYYY, YYYY-MM, YYYY-MM-DD, MM/YYYY, and 'present/current/now'."""
+    if raw is None:
+        return None
+    try:
+        val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
+        if val in {"present", "current", "now"}:
+            return datetime.utcnow()
+        # Handle ranges like "2020-2022" by taking the first segment when mis-fed as a single value
+        if "-" in val and val.count("-") == 1 and len(val) == 9 and val[:4].isdigit() and val[-4:].isdigit():
+            val = val.split("-")[0]
+        fmts = ("%Y-%m-%d", "%Y-%m", "%m/%Y", "%Y/%m", "%Y")
+        for fmt in fmts:
+            try:
+                dt = datetime.strptime(val, fmt)
+                if fmt == "%Y":
+                    dt = dt.replace(month=1, day=1)
+                elif fmt in {"%Y-%m", "%m/%Y", "%Y/%m"}:
+                    dt = dt.replace(day=1)
+                return dt
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _duration_years(start_raw: Any, end_raw: Any) -> float:
+    """Compute duration in years (1 decimal). End defaults to now if missing or 'present'."""
+    s = _parse_date(start_raw)
+    e = _parse_date(end_raw) or datetime.utcnow()
+    if not (s and e and e >= s):
+        return 0.0
+    days = (e - s).days
+    return round(max(days, 0) / 365.0, 1)
+
+
+def _sanitize_roles(experience: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop rows where the 'title' is a section header in any language."""
+    out = []
+    for e in experience or []:
+        title = (e or {}).get("title")
+        if isinstance(title, str) and title.strip().lower() in BANNED_ROLE_TITLES:
             continue
-        seen.add(k)
-        out.append(it)
+        out.append(e)
     return out
 
 
-def _merge_skills(base: List[Dict[str, Any]], add: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _validate_structured_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:
+    if not isinstance(obj, dict):
+        return False, "not a dict"
+    if "person" not in obj or "experience" not in obj or "education" not in obj:
+        return False, "missing top-level keys"
+    person = obj.get("person") or {}
+    langs = person.get("languages")
+    if langs is not None and not isinstance(langs, list):
+        return False, "person.languages must be list or null"
+    exp = obj.get("experience")
+    if exp is not None and not isinstance(exp, list):
+        return False, "experience must be list or null"
+    edu = obj.get("education")
+    if edu is not None and not isinstance(edu, list):
+        return False, "education must be list or null"
+    return True, ""
+
+
+def _validate_clustering_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:
+    if not isinstance(obj, dict):
+        return False, "clustering: not a dict"
+    clusters = obj.get("experience_clusters")
+    if not isinstance(clusters, list):
+        return False, "clustering: experience_clusters must be list"
+    totals = obj.get("totals_by_category")
+    if not isinstance(totals, dict):
+        return False, "clustering: totals_by_category must be dict"
+    for k, v in totals.items():
+        if k not in ALLOWED_CATEGORIES:
+            return False, f"clustering: illegal category {k}"
+        if not _is_number(v) or v < 0:
+            return False, f"clustering: totals_by_category {k} invalid"
+    for c in clusters:
+        cat = c.get("category")
+        if cat not in ALLOWED_CATEGORIES:
+            return False, f"clustering: cluster illegal category {cat}"
+    primary = obj.get("recommended_primary_years")
+    if primary is not None and not isinstance(primary, dict):
+        return False, "clustering: recommended_primary_years must be dict or null"
+    return True, ""
+
+
+def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
+    """Post-merge contact normalization (phones to E.164 where possible)."""
+    person = merged.get("person") or {}
+    fixed = []
+    for p in person.get("phones") or []:
+        val = (p or {}).get("value")
+        if isinstance(val, str) and val.strip():
+            p["value"] = _normalize_il_phone(val)
+            fixed.append(p)
+    if fixed:
+        person["phones"] = fixed
+    merged["person"] = person
+
+
+def _final_merge_base_signals(extraction: Dict[str, Any], base_json: Dict[str, Any]) -> None:
+    """Always bring back deterministic base signals if LLM missed them."""
+    person = extraction.setdefault("person", {})
+    base_person = base_json.get("person") or {}
+    for key in ("emails", "phones", "links", "profiles"):
+        if not person.get(key):
+            person[key] = base_person.get(key) or []
+    if not person.get("languages"):
+        person["languages"] = base_person.get("languages")
+    base_skills = base_json.get("skills") or []
+    if not extraction.get("skills"):
+        extraction["skills"] = base_skills
+
+
+# ----------------------- Soft-matching helpers (utils-ready) -------------------
+
+def _norm_text(s: Optional[str]) -> str:
+    """Lowercase, unify symbols, strip non-alphanumerics, collapse spaces."""
+    if not isinstance(s, str):
+        return ""
+    s = s.lower().strip()
+    s = s.replace("&", "and")
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _jaccard(a: str, b: str) -> float:
+    """Token Jaccard similarity on normalized strings."""
+    ta = set(_norm_text(a).split()) if a else set()
+    tb = set(_norm_text(b).split()) if b else set()
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta & tb)
+    union = len(ta | tb)
+    return inter / union if union else 0.0
+
+
+def _soft_match_role(
+    member: Dict[str, Any],
+    experience: List[Dict[str, Any]],
+    edu_insts_norm: set,
+) -> Optional[Dict[str, Any]]:
     """
-    Merge skills arrays, dedupe by name, and keep the higher confidence where possible.
+    Find a "soft" match between a clustering member and an actual extraction role.
+    Preference is given to company similarity; title contributes as secondary signal.
+    Returns the best matching role or None when no acceptable match is found.
     """
-    by_name: Dict[str, Dict[str, Any]] = {}
-    for src in (base or []):
-        if not isinstance(src, dict) or not src.get("name"):
+    title_m = member.get("title") or ""
+    company_m = member.get("company") or ""
+
+    title_m_n = _norm_text(title_m)
+    company_m_n = _norm_text(company_m)
+
+    best = None
+    best_score = 0.0
+
+    for r in experience:
+        comp_r = r.get("company") or ""
+        title_r = r.get("title") or ""
+        comp_r_n = _norm_text(comp_r)
+        title_r_n = _norm_text(title_r)
+
+        # Exclude education institutions
+        if comp_r_n in edu_insts_norm:
             continue
-        by_name[src["name"].lower()] = src
 
-    for src in (add or []):
-        if not isinstance(src, dict) or not src.get("name"):
+        score_comp = _jaccard(company_m_n, comp_r_n) if company_m_n else 0.0
+        score_title = _jaccard(title_m_n, title_r_n) if title_m_n else 0.0
+
+        # Boost if one string contains the other (handles short/long variants)
+        if company_m_n and (company_m_n in comp_r_n or comp_r_n in company_m_n):
+            score_comp = max(score_comp, 0.9)
+        if title_m_n and (title_m_n in title_r_n or title_r_n in title_m_n):
+            score_title = max(score_title, 0.85)
+
+        score = 0.6 * score_comp + 0.4 * score_title  # company weighs slightly more
+
+        # Acceptance threshold tuned to catch real-world variants ("meta" vs "meta platforms")
+        if score >= 0.55 and score > best_score:
+            best_score = score
+            best = r
+
+    return best
+
+
+# ----------------------------- Clusters rebuilding ----------------------------
+
+def _rebuild_clean_clusters(
+    extraction: Dict[str, Any],
+    raw_clustering: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Rebuild clusters strictly from extraction.experience, recomputing durations.
+    Education roles never count. If exact (title, company) matching fails, we try
+    soft matching to tolerate harmless variations in company/title strings.
+    """
+    experience = _sanitize_roles(extraction.get("experience") or [])
+    edu = extraction.get("education") or []
+
+    # Exact index (legacy behavior)
+    exp_index = {((_lc(e.get("title")) or ""), (_lc(e.get("company")) or "")): e for e in experience}
+    # Normalized set of education institutions (excluded from experience sums)
+    edu_insts_norm = {_norm_text(x.get("institution")) for x in edu if isinstance(x, dict) and x.get("institution")}
+
+    cleaned_clusters: List[Dict[str, Any]] = []
+    totals_by_category: Dict[str, float] = {k: 0.0 for k in ALLOWED_CATEGORIES}
+    category_has_roles: Dict[str, bool] = {k: False for k in ALLOWED_CATEGORIES}
+
+    for c in (raw_clustering.get("experience_clusters") or []):
+        cat = c.get("category")
+        if cat not in ALLOWED_CATEGORIES:
             continue
-        key = src["name"].lower()
-        if key not in by_name:
-            by_name[key] = src
-        else:
-            # Keep higher confidence
-            if src.get("confidence", 0) > by_name[key].get("confidence", 0):
-                by_name[key]["confidence"] = src["confidence"]
-            # Merge provenance ranges if available
-            if src.get("provenance") and by_name[key].get("provenance"):
-                by_name[key]["provenance"].extend(src["provenance"])
+        members = []
+        total_years = 0.0
 
-    # Optional: clamp provenance len to avoid huge payloads
-    for v in by_name.values():
-        prov = v.get("provenance")
-        if isinstance(prov, list) and len(prov) > 20:
-            v["provenance"] = prov[:20]
-    return list(by_name.values())
+        for m in (c.get("members") or []):
+            # Step 1: exact match by (title, company) lowercase
+            title_k = _lc(m.get("title"))
+            company_k = _lc(m.get("company"))
+            exp_key = (title_k or "", company_k or "")
+            exp_role = exp_index.get(exp_key)
+
+            # Step 2: soft match if exact match failed
+            if not exp_role:
+                exp_role = _soft_match_role(m, experience, edu_insts_norm)
+
+            if not exp_role:
+                continue
+
+            # Do not count items that correspond to education institutions
+            comp_norm = _norm_text(exp_role.get("company") or "")
+            if comp_norm in edu_insts_norm:
+                continue
+
+            sd = exp_role.get("start_date")
+            ed = exp_role.get("end_date")
+            dy = _duration_years(sd, ed)
+            if dy <= 0:
+                continue
+
+            members.append({
+                "title": exp_role.get("title"),
+                "company": exp_role.get("company"),
+                "start_date": sd,
+                "end_date": ed
+            })
+            total_years += dy
+
+        if not members:
+            continue
+
+        total_years = round(total_years, 1)
+        totals_by_category[cat] = round(totals_by_category.get(cat, 0.0) + total_years, 1)
+        category_has_roles[cat] = True
+        cleaned_clusters.append({
+            "category": cat,
+            "members": members,
+            "total_years": total_years,
+            "confidence": c.get("confidence", 0.7),
+            "normalized_roles": c.get("normalized_roles") or [],
+            "original_roles": c.get("original_roles") or [],
+            "reasoning": c.get("reasoning") or "recomputed from extraction.experience (with soft matching)"
+        })
+
+    # Normalize totals
+    for k in list(totals_by_category.keys()):
+        totals_by_category[k] = round(totals_by_category[k], 1)
+
+    # If no valid tech roles after cleaning, enforce 0.0
+    if not category_has_roles.get("tech", False):
+        totals_by_category["tech"] = 0.0
+
+    # recommended_primary_years only for tech when present
+    primary_years = {}
+    if totals_by_category.get("tech", 0.0) > 0 and category_has_roles.get("tech", False):
+        primary_years["tech"] = totals_by_category["tech"]
+
+    return {
+        "experience_clusters": cleaned_clusters,
+        "totals_by_category": totals_by_category,
+        "recommended_primary_years": primary_years
+    }
 
 
-def llm_enhance(parsed_text: str, current_json: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Optionally call an LLM to fill missing high-level fields.
-    The LLM is asked to RETURN JSON ONLY (schema-aligned).
-    """
-    if not getattr(settings, "USE_LLM_EXTRACTION", False):
-        return current_json
+# ------------------------------ Final normalization ---------------------------
 
-    need_person_name = (current_json.get("person", {}) or {}).get("name") in (None, "")
-    need_exp = not current_json.get("experience")
-    need_edu = not current_json.get("education")
-    need_skills_topup = True  # Allow LLM to add skills not caught deterministically
+def _final_normalize(extraction: Dict[str, Any], cleaned_cluster: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply final sanitization, merge base signals, and assemble output format."""
+    extraction["experience"] = _sanitize_roles(extraction.get("experience") or [])
+    _final_merge_base_signals(extraction, extraction.get("_base_json_", {}))
+    _postfix_normalize_person(extraction)
 
-    if not (need_person_name or need_exp or need_edu or need_skills_topup):
-        return current_json
+    out = dict(extraction)
+    out.pop("_base_json_", None)
 
-    user = (
-        "TEXT:\n"
-        f"{parsed_text}\n\n"
-        "CURRENT_JSON:\n"
-        f"{current_json}\n"
-        "Return JSON only."
-    )
-    messages = [
-        {"role": "system", "content": RESUME_EXTRACTION_PROMPT},
-        {"role": "user", "content": user},
-    ]
+    out["experience_meta"] = {
+        "experience_clusters": cleaned_cluster.get("experience_clusters", []),
+        "totals_by_category": cleaned_cluster.get("totals_by_category", {}),
+        "recommended_primary_years": cleaned_cluster.get("recommended_primary_years", {}),
+    }
 
+    totals = cleaned_cluster.get("totals_by_category") or {}
+    out["years_by_category"] = {k: float(v) for k, v in totals.items() if _is_number(v) and v >= 0}
+
+    rec = cleaned_cluster.get("recommended_primary_years") or {}
+    out["primary_years"] = float(rec["tech"]) if ("tech" in rec and _is_number(rec["tech"])) else None
+
+    return out
+
+
+# --------------------------------- LLM wrapper --------------------------------
+
+def _call_llm_json(messages: List[Dict[str, str]], timeout: int = LLM_TIMEOUT_S) -> Optional[Dict[str, Any]]:
+    """Thin wrapper for JSON chat calls. Returns dict or None."""
     try:
-        llm_json = default_llm_client.chat_json(messages, timeout=120).data
-        if not isinstance(llm_json, dict):
-            return current_json
+        resp = default_llm_client.chat_json(messages, timeout=timeout)
+        data = resp.data
+        if isinstance(data, dict):
+            return data
+        return None
     except Exception:
-        # Fail open to deterministic result
-        return current_json
+        return None
 
-    merged = dict(current_json)
 
-    # --- Person ---
-    person_base = dict(merged.get("person", {}) or {})
-    person_llm = dict((llm_json.get("person") or {}))
-    conf = person_base.setdefault("confidence_details", {})
+def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run extraction -> clustering -> rebuild & normalize.
+    Strictly trust extraction.experience as the single source of truth for roles.
+    """
+    # Step 1: Extraction
+    extraction: Optional[Dict[str, Any]] = None
+    for _ in range(RETRIES + 1):
+        user = (
+            "TEXT:\n"
+            f"{parsed_text}\n\n"
+            "CURRENT_SAFE_JSON:\n"
+            f"{base_json}\n"
+            "Return JSON only."
+        )
+        messages = [
+            {"role": "system", "content": RESUME_EXTRACTION_PROMPT},
+            {"role": "user", "content": user},
+        ]
+        cand = _call_llm_json(messages, timeout=max(60, LLM_TIMEOUT_S))
+        ok, _why = _validate_structured_payload(cand) if cand is not None else (False, "no data")
+        if ok:
+            extraction = cand
+            break
 
-    if need_person_name and person_llm.get("name"):
-        person_base["name"] = person_llm["name"]
-        conf["name"] = max(0.75, conf.get("name", 0))
+    if extraction is None:
+        # Hard fallback: preserve base_json and return minimal safe shape
+        safe_out = dict(base_json)
+        safe_out.setdefault("person", {}).setdefault("name", None)
+        safe_out["education"] = None
+        safe_out["experience"] = None
+        safe_out["experience_meta"] = {
+            "experience_clusters": [],
+            "totals_by_category": {},
+            "recommended_primary_years": {}
+        }
+        safe_out["years_by_category"] = {}
+        safe_out["primary_years"] = None
+        return safe_out
 
-    if person_llm.get("location") and not person_base.get("location"):
-        person_base["location"] = person_llm["location"]
-        conf["location"] = max(0.7, conf.get("location", 0))
+    extraction["_base_json_"] = base_json
 
-    if person_llm.get("languages") and not person_base.get("languages"):
-        person_base["languages"] = person_llm["languages"]
-        conf["languages"] = max(0.7, conf.get("languages", 0))
+    # Normalize "present/current/now" and whitespace around dates
+    for role in extraction.get("experience") or []:
+        if isinstance(role.get("end_date"), str):
+            if role["end_date"].strip().lower() in {"present", "current", "now"}:
+                role["end_date"] = "present"
+        if isinstance(role.get("start_date"), str):
+            role["start_date"] = role["start_date"].strip()
 
-    merged["person"] = person_base
+    extraction["experience"] = _sanitize_roles(extraction.get("experience") or [])
 
-    # --- Education ---
-    if need_edu and llm_json.get("education"):
-        merged["education"] = llm_json["education"]
-        merged.setdefault("confidence", {})["education"] = 0.7
+    # Step 2: Clustering request
+    extraction_to_cluster = {
+        "text": parsed_text,
+        "experience": extraction.get("experience") or [],
+    }
 
-    # --- Experience ---
-    if need_exp and llm_json.get("experience"):
-        merged["experience"] = llm_json["experience"]
-        merged.setdefault("confidence", {})["experience"] = 0.7
+    raw_clustering: Optional[Dict[str, Any]] = None
+    for _ in range(RETRIES + 1):
+        user = (
+            "INPUT:\n"
+            f"{extraction_to_cluster}\n\n"
+            "Return JSON only per the schema."
+        )
+        messages = [
+            {"role": "system", "content": EXPERIENCE_CLUSTERING_PROMPT},
+            {"role": "user", "content": user},
+        ]
+        cand = _call_llm_json(messages, timeout=LLM_TIMEOUT_S)
+        ok, _why = _validate_clustering_payload(cand) if cand is not None else (False, "no data")
+        if ok:
+            raw_clustering = cand
+            break
 
-    # --- Skills (top-up & dedupe) ---
-    base_skills = merged.get("skills") or []
-    llm_skills = (llm_json.get("skills") or []) if isinstance(llm_json.get("skills"), list) else []
-    merged["skills"] = _merge_skills(base_skills, llm_skills)
+    if raw_clustering is None:
+        raw_clustering = {"experience_clusters": [], "totals_by_category": {}, "recommended_primary_years": {}}
 
-    # Clamp large arrays for storage safety (optional)
-    if len(merged.get("skills", [])) > 200:
-        merged["skills"] = merged["skills"][:200]
-
-    return merged
+    # Step 3: Rebuild & normalize
+    cleaned_cluster = _rebuild_clean_clusters(extraction, raw_clustering)
+    final = _final_normalize(extraction, cleaned_cluster)
+    return final

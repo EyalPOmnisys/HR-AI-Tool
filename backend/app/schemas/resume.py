@@ -1,7 +1,15 @@
+# app/schemas/resume.py  (the Pydantic models file you provided)
+# -----------------------------------------------------------------------------
+# CHANGELOG (English-only comments as requested)
+# - Add optional years_by_category: dict[str, float] to both ResumeSummary and ResumeDetail.
+# - Add optional primary_years: float to ResumeDetail (recommended primary years, e.g., "tech").
+# - Keep years_of_experience for backward compatibility (legacy total).
+# - No breaking changes: all new fields are optional and default to None/{}.
+# -----------------------------------------------------------------------------
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,6 +21,8 @@ class ResumeSummary(BaseModel):
     profession: Optional[str] = None
     years_of_experience: Optional[float] = Field(None, ge=0)
     resume_url: str
+    # New: per-category breakdown (optional)
+    years_by_category: Dict[str, float] = Field(default_factory=dict)
 
 
 class ResumeListOut(BaseModel):
@@ -63,3 +73,5 @@ class ResumeDetail(BaseModel):
     languages: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    years_by_category: Dict[str, float] = Field(default_factory=dict)
+    primary_years: Optional[float] = Field(None, ge=0)

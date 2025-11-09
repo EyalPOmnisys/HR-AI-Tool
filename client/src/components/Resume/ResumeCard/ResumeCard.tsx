@@ -57,12 +57,12 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
         </div>
 
         <div className={styles.meta}>
-          <div className={styles.metaItem}>
+          <div className={`${styles.badge} ${styles.professionBadge}`}>
             <FaBriefcase className={styles.icon} />
             <span title={displayProfession}>{displayProfession}</span>
           </div>
 
-          <div className={styles.metaItem}>
+          <div className={styles.badge}>
             <FaClock className={styles.icon} />
             <span>{yearsLabel}</span>
           </div>
@@ -76,9 +76,9 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
           target="_blank"
           rel="noreferrer"
           onClick={handleLinkClick}
-          title="Download resume PDF"
+          title="View resume"
         >
-          <span>Download</span>
+          <span>View CV</span>
           <FaExternalLinkAlt className={styles.linkIcon} />
         </a>
       </div>

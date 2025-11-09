@@ -73,15 +73,42 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
 }
 
-.metaItem {
-  display: flex;
+.badge {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  color: #64748b;
-  justify-content: center;
+  gap: 6px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.badge .icon {
+  color: #3b82f6;
+  width: 14px;
+  height: 14px;
+}
+
+.badge span {
+  white-space: nowrap;
+}
+
+.professionBadge {
+  background: #f0fdf4;
+  color: #065f46;
+  border: 1px solid #bbf7d0;
+}
+
+.professionBadge .icon {
+  color: #10b981;
 }
 
 .metaItem span {
@@ -129,7 +156,6 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  color: currentColor;
 }
 
 .linkIcon {
