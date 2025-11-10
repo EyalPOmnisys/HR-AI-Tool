@@ -1,4 +1,3 @@
-# app/core/config.py
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
@@ -20,6 +19,11 @@ class Settings(BaseSettings):
     LLM_CHAT_MODEL: str = Field(..., description="Model used for job analysis")
     EMBEDDING_MODEL: str = Field(..., description="Model used for text embeddings")
     ANALYSIS_VERSION: int = Field(default=1)
+
+    # --- OpenAI Integration ---
+    OPENAI_API_KEY: str | None = Field(default=None, description="API key for OpenAI services")
+    OPENAI_MODEL: str = Field(default="gpt-4o-mini", description="Default OpenAI model for chat completions")
+    OPENAI_EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="Default model for OpenAI embeddings")
 
     # --- CV analysis ---
     USE_LLM_EXTRACTION: bool = True

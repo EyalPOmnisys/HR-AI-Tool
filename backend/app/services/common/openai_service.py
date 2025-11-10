@@ -1,24 +1,23 @@
 from __future__ import annotations
-import os
+import json
 from openai import OpenAI
+from app.core.config import settings
 
-# Initialize OpenAI client
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("Missing OPENAI_API_KEY environment variable")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+if not settings.OPENAI_API_KEY:
+    raise ValueError("Missing OPENAI_API_KEY in environment variables")
 
-# Default model - can be overridden per request
-DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+# Initialize the OpenAI client
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 def run_completion(prompt: str, model: str | None = None) -> str:
     """
-    Run a simple text completion on the given prompt.
+    Simple chat completion with OpenAI models.
     """
+    model_name = model or settings.OPENAI_MODEL
     response = client.chat.completions.create(
-        model=model or DEFAULT_OPENAI_MODEL,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt},
@@ -29,11 +28,22 @@ def run_completion(prompt: str, model: str | None = None) -> str:
 
 def run_json_completion(prompt: str, model: str | None = None) -> dict:
     """
-    Run a completion and parse response as JSON (useful for structured outputs).
+    Run a completion and parse it as JSON (useful for structured extraction).
     """
-    response = run_completion(prompt, model)
+    text = run_completion(prompt, model)
     try:
-        import json
-        return json.loads(response)
+        return json.loads(text)
     except json.JSONDecodeError:
-        return {"error": "Invalid JSON returned", "raw": response}
+        return {"error": "Invalid JSON returned", "raw": text}
+
+
+def get_openai_embedding(text: str, model: str | None = None) -> list[float]:
+    """
+    Generate embeddings using OpenAI's embedding models.
+    """
+    model_name = model or settings.OPENAI_EMBEDDING_MODEL
+    response = client.embeddings.create(
+        model=model_name,
+        input=text,
+    )
+    return response.data[0].embedding

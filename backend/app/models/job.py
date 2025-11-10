@@ -23,7 +23,7 @@ class Job(Base):
     ai_started_at = Column(DateTime(timezone=True), nullable=True)
     ai_finished_at = Column(DateTime(timezone=True), nullable=True)
     ai_error = Column(Text, nullable=True)
-    embedding = Column(Vector(768), nullable=True)
+    embedding = Column(Vector(3072), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

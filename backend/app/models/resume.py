@@ -9,7 +9,7 @@ from pgvector.sqlalchemy import Vector
 from app.db.base import Base
 
 
-EMBED_DIM = 768  
+EMBED_DIM = 3072
 
 
 class Resume(Base):
@@ -27,7 +27,7 @@ class Resume(Base):
     parsed_text = Column(Text, nullable=True)
     extraction_json = Column(JSONB, nullable=True)
 
-    embedding = Column(Vector(EMBED_DIM), nullable=True)
+    embedding = Column(Vector(EMBED_DIM), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -58,7 +58,7 @@ class ResumeEmbedding(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chunk_id = Column(UUID(as_uuid=True), ForeignKey("resume_chunks.id", ondelete="CASCADE"), unique=True, nullable=False)
 
-    embedding = Column(Vector(EMBED_DIM), nullable=False)
+    embedding = Column(Vector(EMBED_DIM), nullable=True)
     embedding_model = Column(String(64), nullable=True)
     embedding_version = Column(Integer, nullable=True)
 
