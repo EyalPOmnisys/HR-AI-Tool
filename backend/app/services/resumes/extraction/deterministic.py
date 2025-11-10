@@ -6,6 +6,7 @@
 #   * Section boundaries (provenance), Languages (light), Skills (dictionary-based)
 # - NO inference for education/experience titles/dates to avoid mistakes (e.g., "MA" from "May").
 # - Leaves education/experience to the LLM. This ensures fewer false positives and better consistency.
+# - UPDATE: Expanded TECH_DICT to cover common items seen in resumes (e.g., NestJS, Cesium, OpenLayers, Git, Jenkins, Linux, OpenShift, Splunk, HTML, CSS).
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -20,27 +21,46 @@ LINKEDIN_RE = re.compile(r"https?://(www\.)?linkedin\.com/[^\s)\]]+", re.I)
 GITHUB_RE = re.compile(r"https?://(www\.)?github\.com/[^\s)\]]+", re.I)
 
 SECTION_RE = re.compile(
-    r"^\s*(experience|education|skills|projects|summary|languages|certifications|achievements|"
+    r"^\s*(experience|education|skills(?:\s*&\s*abilities)?|projects|summary|languages|certifications|achievements|"
     r"ניסיון|השכלה|מיומנויות|פרויקטים|סיכום|שפות|הסמכות)\s*[:\-]?\s*$",
     re.I,
 )
 
+# NOTE: keys are raw mentions; values are normalized tokens
 TECH_DICT = {
+    # languages & frameworks
     "python": "python", "py": "python", "r": "r", "java": "java",
     "c#": "csharp", "csharp": "csharp", "c++": "cpp", "go": "go",
     "javascript": "javascript", "typescript": "typescript", "ts": "typescript",
     "php": "php", "ruby": "ruby", "scala": "scala", "rust": "rust",
+
+    # front-end
     "react": "react", "vue": "vue", "angular": "angular",
-    "node": "nodejs", "node.js": "nodejs", "express": "express",
-    "django": "django", "flask": "flask", "fastapi": "fastapi",
-    "spring": "spring", ".net": "dotnet", "dotnet": "dotnet",
     "nextjs": "nextjs", "tailwind": "tailwind",
+    "html": "html", "html5": "html", "css": "css", "css3": "css",
+
+    # node ecosystem & back-end
+    "node": "nodejs", "node js": "nodejs", "node.js": "nodejs", "express": "express",
+    "nest": "nestjs", "nestjs": "nestjs", "spring": "spring",
+    ".net": "dotnet", "dotnet": "dotnet", "django": "django", "flask": "flask", "fastapi": "fastapi",
+
+    # data & ml
     "pandas": "pandas", "numpy": "numpy", "scikit-learn": "scikit-learn",
-    "xgboost": "xgboost", "lightgbm": "lightgbm",
-    "spark": "spark", "airflow": "airflow",
+    "xgboost": "xgboost", "lightgbm": "lightgbm", "spark": "spark", "airflow": "airflow",
+
+    # mapping/3D
+    "cesium": "cesium", "openlayers": "openlayers",
+
+    # databases
     "sql": "sql", "postgres": "postgresql", "postgresql": "postgresql",
     "mysql": "mysql", "mongodb": "mongodb",
+
+    # devops & infra
     "docker": "docker", "kubernetes": "kubernetes", "k8s": "kubernetes",
+    "git": "git", "jenkins": "jenkins", "linux": "linux",
+    "openshift": "openshift", "splunk": "splunk",
+
+    # clouds
     "aws": "aws", "gcp": "gcp", "azure": "azure",
 }
 

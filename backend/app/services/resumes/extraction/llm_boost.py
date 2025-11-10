@@ -10,14 +10,11 @@
 #    when missing from the LLM result.
 # 5) Section headers (e.g., "Projects") never leak into roles.
 # 6) Dates are normalized and years are recalculated from extraction.experience.
-# The LLM is called in two steps: (1) structured extraction, (2) clustering.
-# We then rebuild/clean the clusters by matching ONLY actual experience roles,
-# re-summing years by category, and rejecting anything tied to education.
-# On repeated LLM failure, we fall back to a safe-minimal JSON.
-#
-# Note on factoring: soft-matching helpers (_norm_text/_jaccard/_soft_match_role)
-# are kept here for now but were written to be trivially extracted into a utils
-# module (e.g., app/services/resumes/utils/matching.py) without changing callers.
+# 7) NEW: Parse month-name dates (e.g., "Jan 2020", "January 2020", "March 3, 2024").
+# 8) NEW: If clustering returns nothing, fall back to a deterministic total by category
+#    based on role titles/tech stack, preferring TECH over MILITARY for military orgs
+#    when the role is clearly technical.
+# 9) NEW: Post-merge deduplication for contacts (emails/phones/links/profiles).
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -66,23 +63,38 @@ def _lc(s: Optional[str]) -> Optional[str]:
 
 
 def _parse_date(raw: Any) -> Optional[datetime]:
-    """Parse multiple loose formats including YYYY, YYYY-MM, YYYY-MM-DD, MM/YYYY, and 'present/current/now'."""
+    """
+    Parse multiple loose formats including:
+    - YYYY, YYYY-MM, YYYY-MM-DD, MM/YYYY, YYYY/MM
+    - Month-name formats: 'Jan 2020', 'January 2020', 'Jan 3, 2024', 'January 3, 2024'
+    - Also tolerates single hyphenated ranges like '2020-2022' by taking the first segment.
+    - 'present/current/now' map to current UTC.
+    """
     if raw is None:
         return None
     try:
         val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
         if val in {"present", "current", "now"}:
             return datetime.utcnow()
-        # Handle ranges like "2020-2022" by taking the first segment when mis-fed as a single value
+        # Handle compact year range mistakenly sent as a single value
         if "-" in val and val.count("-") == 1 and len(val) == 9 and val[:4].isdigit() and val[-4:].isdigit():
             val = val.split("-")[0]
-        fmts = ("%Y-%m-%d", "%Y-%m", "%m/%Y", "%Y/%m", "%Y")
+
+        # Try an ordered list of formats (most specific first)
+        fmts = (
+            "%B %d, %Y", "%b %d, %Y",
+            "%d %B %Y", "%d %b %Y",
+            "%B %Y", "%b %Y",
+            "%Y-%m-%d", "%Y-%m",
+            "%m/%Y", "%Y/%m", "%Y",
+            "%b-%Y", "%B-%Y",
+        )
         for fmt in fmts:
             try:
-                dt = datetime.strptime(val, fmt)
+                dt = datetime.strptime(val.title() if "%b" in fmt or "%B" in fmt else val, fmt)
                 if fmt == "%Y":
                     dt = dt.replace(month=1, day=1)
-                elif fmt in {"%Y-%m", "%m/%Y", "%Y/%m"}:
+                elif fmt in {"%Y-%m", "%m/%Y", "%Y/%m", "%b %Y", "%B %Y", "%b-%Y", "%B-%Y"}:
                     dt = dt.replace(day=1)
                 return dt
             except ValueError:
@@ -155,8 +167,54 @@ def _validate_clustering_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:
     return True, ""
 
 
+# ----------------------- Contacts post-processing -----------------------------
+
+def _normalize_url_for_dedup(u: str) -> str:
+    if not isinstance(u, str):
+        return ""
+    return u.strip().rstrip("/").lower()
+
+
+def _dedup_person_contacts(person: Dict[str, Any]) -> Dict[str, Any]:
+    """Deduplicate person contacts by normalized values after merge/normalization."""
+    def dedup(items: Optional[List[Dict[str, Any]]], key_fn):
+        out, seen = [], set()
+        for it in items or []:
+            try:
+                key = key_fn(it)
+            except Exception:
+                key = None
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(it)
+        return out
+
+    # Emails
+    person["emails"] = dedup(
+        person.get("emails"),
+        lambda i: (i.get("value") or "").strip().lower()
+    )
+    # Phones (normalize to E.164-like key)
+    person["phones"] = dedup(
+        person.get("phones"),
+        lambda i: _normalize_il_phone(i.get("value") or "")
+    )
+    # Links (URLs)
+    person["links"] = dedup(
+        person.get("links"),
+        lambda i: _normalize_url_for_dedup(i.get("value") or "")
+    )
+    # Profiles (type + URL)
+    person["profiles"] = dedup(
+        person.get("profiles"),
+        lambda i: (str(i.get("type") or "").lower(), _normalize_url_for_dedup(i.get("value") or ""))
+    )
+    return person
+
+
 def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
-    """Post-merge contact normalization (phones to E.164 where possible)."""
+    """Post-merge contact normalization and dedup (phones to E.164 where possible)."""
     person = merged.get("person") or {}
     fixed = []
     for p in person.get("phones") or []:
@@ -166,6 +224,8 @@ def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
             fixed.append(p)
     if fixed:
         person["phones"] = fixed
+    # Deduplicate all contact lists
+    person = _dedup_person_contacts(person)
     merged["person"] = person
 
 
@@ -256,6 +316,71 @@ def _soft_match_role(
     return best
 
 
+# ----------------------------- Fallback heuristics ----------------------------
+
+_TECH_TITLE_KEYWORDS = (
+    "developer", "engineer", "software", "frontend", "front end", "backend", "back end",
+    "full stack", "devops", "sre", "site reliability", "data", "ml", "machine learning",
+    "ai", "android", "ios", "mobile", "architect", "security", "platform", "automation", "qa"
+)
+
+
+def _is_tech_role(role: Dict[str, Any]) -> bool:
+    """Return True if role clearly looks technical by title keywords or a non-empty tech stack."""
+    tech_list = role.get("tech")
+    if isinstance(tech_list, list) and any(isinstance(t, str) and t.strip() for t in tech_list):
+        return True
+    title_n = _norm_text(role.get("title"))
+    return any(k in title_n for k in _TECH_TITLE_KEYWORDS)
+
+
+def _looks_military_company(company_raw: Optional[str]) -> bool:
+    """Detect common military/defense org hints (e.g., IAF/IDF/Unit numbers/Ofek)."""
+    name = _norm_text(company_raw)
+    if not name:
+        return False
+    if any(tag in name for tag in ("iaf", "idf", "air force", "ofek", "tzahal", "8200")):
+        return True
+    # 'unit' combined with a unit number is a strong signal (e.g., 'unit 324')
+    if "unit" in name and re.search(r"\b\d{2,4}\b", name):
+        return True
+    return False
+
+
+def _fallback_totals_by_category(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Fallback when clustering returns nothing: sum durations from extraction.experience and
+    assign categories by simple heuristics. Prefer TECH when role looks technical even if
+    the company name is military/defense.
+    """
+    experience = _sanitize_roles(extraction.get("experience") or [])
+    totals_by_category: Dict[str, float] = {k: 0.0 for k in ALLOWED_CATEGORIES}
+
+    for role in experience:
+        dy = _duration_years(role.get("start_date"), role.get("end_date"))
+        if dy <= 0:
+            continue
+        company = role.get("company") or ""
+        if _is_tech_role(role):
+            cat = "tech"
+        elif _looks_military_company(company):
+            cat = "military"
+        else:
+            cat = "other"
+        totals_by_category[cat] = round(totals_by_category[cat] + dy, 1)
+
+    # recommended_primary_years only for tech when present
+    primary_years = {}
+    if totals_by_category.get("tech", 0.0) > 0:
+        primary_years["tech"] = totals_by_category["tech"]
+
+    return {
+        "experience_clusters": [],  # fallback does not fabricate clusters
+        "totals_by_category": totals_by_category,
+        "recommended_primary_years": primary_years,
+    }
+
+
 # ----------------------------- Clusters rebuilding ----------------------------
 
 def _rebuild_clean_clusters(
@@ -266,6 +391,8 @@ def _rebuild_clean_clusters(
     Rebuild clusters strictly from extraction.experience, recomputing durations.
     Education roles never count. If exact (title, company) matching fails, we try
     soft matching to tolerate harmless variations in company/title strings.
+    If, after rebuilding, nothing valid remains, fall back to a deterministic
+    totals computation by title/stack heuristics (preferring TECH when appropriate).
     """
     experience = _sanitize_roles(extraction.get("experience") or [])
     edu = extraction.get("education") or []
@@ -343,10 +470,17 @@ def _rebuild_clean_clusters(
     if not category_has_roles.get("tech", False):
         totals_by_category["tech"] = 0.0
 
-    # recommended_primary_years only for tech when present
-    primary_years = {}
-    if totals_by_category.get("tech", 0.0) > 0 and category_has_roles.get("tech", False):
-        primary_years["tech"] = totals_by_category["tech"]
+    # If nothing meaningful came out, fall back to deterministic totals by role/title/stack
+    if (not cleaned_clusters) or (all(v == 0.0 for v in totals_by_category.values())):
+        fallback = _fallback_totals_by_category(extraction)
+        # Preserve cleaned_clusters if they exist; otherwise use empty (fallback does not fabricate)
+        cleaned_clusters = cleaned_clusters or fallback.get("experience_clusters", [])
+        totals_by_category = fallback.get("totals_by_category", totals_by_category)
+        primary_years = fallback.get("recommended_primary_years", {})
+    else:
+        primary_years = {}
+        if totals_by_category.get("tech", 0.0) > 0 and category_has_roles.get("tech", False):
+            primary_years["tech"] = totals_by_category["tech"]
 
     return {
         "experience_clusters": cleaned_clusters,
@@ -473,7 +607,7 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
     if raw_clustering is None:
         raw_clustering = {"experience_clusters": [], "totals_by_category": {}, "recommended_primary_years": {}}
 
-    # Step 3: Rebuild & normalize
+    # Step 3: Rebuild & normalize (with fallback when needed)
     cleaned_cluster = _rebuild_clean_clusters(extraction, raw_clustering)
     final = _final_normalize(extraction, cleaned_cluster)
     return final

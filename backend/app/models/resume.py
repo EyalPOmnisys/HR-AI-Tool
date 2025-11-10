@@ -1,13 +1,14 @@
 # Purpose: Resume models for RAG-ready storage.
 from __future__ import annotations
+
 import uuid
 from sqlalchemy import Column, Text, String, Integer, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
-from app.db.base import Base
 
+from app.db.base import Base
 
 EMBED_DIM = 3072
 
@@ -26,13 +27,17 @@ class Resume(Base):
 
     parsed_text = Column(Text, nullable=True)
     extraction_json = Column(JSONB, nullable=True)
-
-    embedding = Column(Vector(EMBED_DIM), nullable=False)
+    embedding = Column(Vector(EMBED_DIM), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    chunks = relationship("ResumeChunk", back_populates="resume", cascade="all, delete-orphan", passive_deletes=True)
+    chunks = relationship(
+        "ResumeChunk",
+        back_populates="resume",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ResumeChunk(Base):
@@ -49,7 +54,13 @@ class ResumeChunk(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     resume = relationship("Resume", back_populates="chunks")
-    embedding_row = relationship("ResumeEmbedding", back_populates="chunk", uselist=False, cascade="all, delete-orphan", passive_deletes=True)
+    embedding_row = relationship(
+        "ResumeEmbedding",
+        back_populates="chunk",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ResumeEmbedding(Base):
@@ -57,7 +68,6 @@ class ResumeEmbedding(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chunk_id = Column(UUID(as_uuid=True), ForeignKey("resume_chunks.id", ondelete="CASCADE"), unique=True, nullable=False)
-
     embedding = Column(Vector(EMBED_DIM), nullable=True)
     embedding_model = Column(String(64), nullable=True)
     embedding_version = Column(Integer, nullable=True)

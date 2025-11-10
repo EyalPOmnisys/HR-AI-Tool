@@ -1,4 +1,5 @@
-"""Utilities for reading, parsing, and chunking resume text."""
+# app/services/resumes/parsing_utils.py
+"""Utilities for reading, parsing, and chunking resume text (English-only)."""
 from __future__ import annotations
 
 import hashlib
@@ -32,10 +33,33 @@ def read_file_bytes(path: Path) -> bytes:
 
 # --- Parsing ---
 
+def _reconstruct_text_from_words(pdf_page) -> str:
+    """
+    Fallback: reconstruct a page's text from words when extract_text() is empty.
+    Groups words by their top (y) position and sorts by x to form lines.
+    """
+    words = pdf_page.extract_words() or []
+    if not words:
+        return ""
+    # Group by y position (rounded to avoid micro-variations)
+    rows = {}
+    for w in words:
+        y = int(round(w.get("top", 0)))
+        rows.setdefault(y, []).append(w)
+    lines = []
+    for y in sorted(rows.keys()):
+        parts = sorted(rows[y], key=lambda w: w.get("x0", 0))
+        line = " ".join(p.get("text", "") for p in parts if p.get("text"))
+        if line.strip():
+            lines.append(line.strip())
+    return "\n".join(lines)
+
+
 def parse_to_text(path: Path) -> str:
     """
     Convert resume file (PDF/DOCX/TXT) to plain text.
-    The PDF path uses pdfplumber for robust text layout extraction.
+    - For PDFs, prefer pdfplumber.extract_text() (line-aware); if empty,
+      fall back to reconstructing from words to reduce column/bullet fragmentation.
     """
     mime = detect_mime(path)
     lower = path.suffix.lower()
@@ -45,8 +69,10 @@ def parse_to_text(path: Path) -> str:
         parts: List[str] = []
         with pdfplumber.open(str(path)) as pdf:
             for page in pdf.pages:
-                # extract_text() provides line-aware extraction and is usually more reliable than raw OCR for digital PDFs
                 text = page.extract_text() or ""
+                if not text.strip():
+                    # Fallback reconstruction for scanned or tricky layout pages
+                    text = _reconstruct_text_from_words(page) or ""
                 parts.append(text)
         return "\n".join(parts).strip()
 
@@ -63,7 +89,7 @@ def parse_to_text(path: Path) -> str:
 # --- Chunking ---
 
 _SECTION_HEADINGS = (
-    "experience|education|skills|projects|summary|languages|certifications|achievements|"
+    "experience|education|skills(?:\\s*&\\s*abilities)?|projects|summary|languages|certifications|achievements|"
     "ניסיון|השכלה|מיומנויות|פרויקטים|סיכום|שפות|הסמכות"
 )
 

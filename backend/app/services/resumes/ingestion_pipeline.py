@@ -1,11 +1,12 @@
-# app/services/resumes/ingestion_pipeline.py (the large module you shared first)
+# app/services/resumes/ingestion_pipeline.py
 # -----------------------------------------------------------------------------
-# CHANGELOG (English-only comments as requested)
+# CHANGELOG (English-only comments)
 # - get_resume_detail(): expose years_by_category (from extraction_json.experience_meta.totals_by_category)
 #   and primary_years (prefer LLM recommended_primary_years["tech"], fallback to deterministic totals["tech"]).
 # - _resume_to_summary(): use primary years if available; fallback retains previous behavior.
 # - compute_years_of_experience remains for backward compatibility.
-# - No new imports/files; only enrich returned dict.
+# - Date parsing updated to support month-name formats (e.g., "Jan 2020", "January 2020", "March 3, 2024").
+# - No new imports/files; only enrich returned dicts and parsing robustness.
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -136,7 +137,7 @@ def get_resume_detail(db: Session, resume_id: UUID) -> Optional[dict[str, Any]]:
     education_entries = _extract_education(extraction)
     languages = _extract_languages(extraction)
 
-    # New: derive years_by_category + primary_years if available
+    # Derive years_by_category + primary_years if available
     exp_meta = extraction.get("experience_meta") or {}
     totals_by_category = exp_meta.get("totals_by_category") or {}
     rec_primary = exp_meta.get("recommended_primary_years") or {}
@@ -344,6 +345,10 @@ def _compute_years_of_experience(experience: Any) -> Optional[float]:
 
 
 def _parse_date(raw: Any, default_now: bool = False):
+    """
+    Parse multiple loose formats including month-name variants.
+    If raw is falsy and default_now=True, return now.
+    """
     from datetime import datetime
     if not raw:
         return datetime.utcnow() if default_now else None
@@ -353,13 +358,20 @@ def _parse_date(raw: Any, default_now: bool = False):
             return datetime.utcnow()
         if "-" in val and val.count("-") == 1 and len(val) == 9 and val[:4].isdigit() and val[-4:].isdigit():
             val = val.split("-")[0]
-        fmts = ("%Y-%m-%d", "%Y-%m", "%m/%Y", "%Y/%m", "%Y")
+        fmts = (
+            "%B %d, %Y", "%b %d, %Y",
+            "%d %B %Y", "%d %b %Y",
+            "%B %Y", "%b %Y",
+            "%Y-%m-%d", "%Y-%m",
+            "%m/%Y", "%Y/%m", "%Y",
+            "%b-%Y", "%B-%Y",
+        )
         for fmt in fmts:
             try:
-                dt = datetime.strptime(val, fmt)
+                dt = datetime.strptime(val.title() if "%b" in fmt or "%B" in fmt else val, fmt)
                 if fmt == "%Y":
                     dt = dt.replace(month=1, day=1)
-                elif fmt in {"%Y-%m", "%m/%Y", "%Y/%m"}:
+                elif fmt in {"%Y-%m", "%m/%Y", "%Y/%m", "%b %Y", "%B %Y", "%b-%Y", "%B-%Y"}:
                     dt = dt.replace(day=1)
                 return dt
             except ValueError:
