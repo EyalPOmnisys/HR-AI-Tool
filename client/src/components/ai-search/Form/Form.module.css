@@ -76,12 +76,15 @@
   font-size: 14px;
   background: white;
   transition: all 0.2s ease;
+  position: relative;
+  z-index: 9999;
 }
 
 .control:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
   outline: none;
+  z-index: 10000;
 }
 
 .actions {

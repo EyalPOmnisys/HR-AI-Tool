@@ -60,7 +60,7 @@ def list_jobs(
 
 
 @router.put("/{job_id}", response_model=JobOut)
-def update_job(job_id: UUID, payload: JobUpdate, db: Session = Depends(get_db)):
+def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db: Session = Depends(get_db)):
     job = job_service.get_job(db, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -73,6 +73,8 @@ def update_job(job_id: UUID, payload: JobUpdate, db: Session = Depends(get_db)):
         icon=payload.icon,
         status=payload.status,
     )
+    # Re-run AI analysis in background after update
+    background.add_task(_analyze_async, job.id)
     return job
 
 

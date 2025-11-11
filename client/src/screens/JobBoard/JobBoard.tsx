@@ -160,7 +160,8 @@ export const JobBoard = (): ReactElement => {
           icon: draft.icon,
         }
         const updated = await updateJob(editingJobId, payload)
-        const ui = mapApiToUi(updated)
+        // Map to UI and force analysis to null to show skeleton while re-analyzing
+        const ui = { ...mapApiToUi(updated), analysis: null }
         setJobs((prev) => prev.map((job) => (job.id === editingJobId ? ui : job)))
         startAnalysisPolling(ui.id)
       }

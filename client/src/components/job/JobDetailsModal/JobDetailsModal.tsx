@@ -60,6 +60,42 @@ export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDet
     onClose()
   }
 
+  const analysis = job.analysis
+  const mustHaveSkills = analysis?.skills?.must_have ?? []
+  const niceToHaveSkills = analysis?.skills?.nice_to_have ?? []
+  const locations = analysis?.locations ?? []
+  const languages = analysis?.tech_stack?.languages ?? []
+  const frameworks = analysis?.tech_stack?.frameworks ?? []
+  const databases = analysis?.tech_stack?.databases ?? []
+  const tools = analysis?.tech_stack?.tools ?? []
+  const requirements = analysis?.requirements ?? []
+  const responsibilities = analysis?.responsibilities ?? []
+  const education = analysis?.education ?? []
+  const humanLanguages = analysis?.languages ?? []
+  const experience = analysis?.experience
+  const salaryRange = analysis?.salary_range
+
+  // Use AI summary if available, otherwise fall back to original description
+  const displayDescription = analysis?.summary || job.description
+
+  // Format experience string
+  const experienceText = experience
+    ? experience.years_min && experience.years_max
+      ? `${experience.years_min}-${experience.years_max} years`
+      : experience.years_min
+      ? `${experience.years_min}+ years`
+      : null
+    : null
+
+  // Format salary string
+  const salaryText = salaryRange
+    ? salaryRange.min && salaryRange.max && salaryRange.currency
+      ? `${salaryRange.currency} ${salaryRange.min.toLocaleString()} - ${salaryRange.max.toLocaleString()}`
+      : salaryRange.min && salaryRange.currency
+      ? `${salaryRange.currency} ${salaryRange.min.toLocaleString()}+`
+      : null
+    : null
+
   return (
     <div className={styles.backdrop} role="dialog" aria-modal="true" onClick={handleBackdropClick}>
       <div className={styles.modal} onClick={handleContentClick}>
@@ -68,8 +104,11 @@ export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDet
             <div className={styles.iconWrapper} aria-hidden>
               <span>{job.icon}</span>
             </div>
-            <div>
+            <div className={styles.titleContent}>
               <h2>{job.title}</h2>
+              {analysis?.organization && (
+                <p className={styles.organization}>{analysis.organization}</p>
+              )}
               <p className={styles.meta}>Posted on {formatDate(job.postedAt)}</p>
             </div>
           </div>
@@ -79,15 +118,228 @@ export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDet
         </header>
 
         <div className={styles.body}>
-          <section className={styles.section}>
-            <h3>Description</h3>
-            <p>{job.description}</p>
-          </section>
+          {!analysis ? (
+            // Show loading state while analysis is being generated
+            <>
+              <section className={styles.section}>
+                <div className={styles.loadingState}>
+                  <div className={styles.loadingIcon}>🤖</div>
+                  <h3 className={styles.loadingTitle}>AI Analysis in Progress</h3>
+                  <p className={styles.loadingText}>
+                    Our AI is analyzing this job posting. This usually takes a few seconds...
+                  </p>
+                </div>
+                {/* Show original description while waiting */}
+                <div className={styles.originalDescription}>
+                  <h3 className={styles.sectionTitle}>Original Description</h3>
+                  <p className={styles.description}>{job.description}</p>
+                </div>
+              </section>
+              {/* Candidate Message */}
+              {job.freeText && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Additional Notes</h3>
+                  <p className={styles.freeText}>{job.freeText}</p>
+                </section>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Summary Section */}
+              <section className={styles.section}>
+                <h3 className={styles.sectionTitle}>Summary</h3>
+                <p className={styles.description}>{displayDescription}</p>
+              </section>
+
+          {/* Experience & Salary Info */}
+          {(experienceText || salaryText) && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Position Details</h3>
+              <div className={styles.metaInfo}>
+                {experienceText && (
+                  <div className={styles.metaItem}>
+                    <span className={styles.metaIcon}>💼</span>
+                    <span className={styles.metaText}>Experience: {experienceText}</span>
+                  </div>
+                )}
+                {salaryText && (
+                  <div className={styles.metaItem}>
+                    <span className={styles.metaIcon}>💰</span>
+                    <span className={styles.metaText}>Salary: {salaryText}</span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Locations */}
+          {locations.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Locations</h3>
+              <div className={styles.locations}>
+                {locations.map((loc, idx) => (
+                  <span key={idx} className={styles.locationBadge}>
+                    📍 {loc}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Requirements */}
+          {requirements.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Key Requirements</h3>
+              <ul className={styles.list}>
+                {requirements.map((req, idx) => (
+                  <li key={idx} className={styles.listItem}>
+                    {req}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Responsibilities */}
+          {responsibilities.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Responsibilities</h3>
+              <ul className={styles.list}>
+                {responsibilities.map((resp, idx) => (
+                  <li key={idx} className={styles.listItem}>
+                    {resp}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Must Have Skills */}
+          {mustHaveSkills.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Must Have Skills</h3>
+              <div className={styles.skillsList}>
+                {mustHaveSkills.map((skill, idx) => (
+                  <span key={idx} className={styles.skillBadge}>
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Nice to Have Skills */}
+          {niceToHaveSkills.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Nice to Have Skills</h3>
+              <div className={styles.skillsList}>
+                {niceToHaveSkills.map((skill, idx) => (
+                  <span key={idx} className={styles.skillBadgeOptional}>
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Tech Stack */}
+          {(languages.length > 0 || frameworks.length > 0 || databases.length > 0 || tools.length > 0) && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Tech Stack</h3>
+              <div className={styles.techStackContainer}>
+                {languages.length > 0 && (
+                  <div className={styles.techCategory}>
+                    <div className={styles.techCategoryLabel}>Languages</div>
+                    <div className={styles.techList}>
+                      {languages.map((tech, idx) => (
+                        <span key={idx} className={styles.techBadge}>
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {frameworks.length > 0 && (
+                  <div className={styles.techCategory}>
+                    <div className={styles.techCategoryLabel}>Frameworks</div>
+                    <div className={styles.techList}>
+                      {frameworks.map((tech, idx) => (
+                        <span key={idx} className={styles.techBadge}>
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {databases.length > 0 && (
+                  <div className={styles.techCategory}>
+                    <div className={styles.techCategoryLabel}>Databases</div>
+                    <div className={styles.techList}>
+                      {databases.map((tech, idx) => (
+                        <span key={idx} className={styles.techBadge}>
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {tools.length > 0 && (
+                  <div className={styles.techCategory}>
+                    <div className={styles.techCategoryLabel}>Tools</div>
+                    <div className={styles.techList}>
+                      {tools.map((tech, idx) => (
+                        <span key={idx} className={styles.techBadge}>
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Education */}
+          {education.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Education Requirements</h3>
+              <ul className={styles.list}>
+                {education.map((edu, idx) => (
+                  <li key={idx} className={styles.listItemBenefit}>
+                    {edu}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Human Languages */}
+          {humanLanguages.length > 0 && (
+            <section className={styles.section}>
+              <h3 className={styles.sectionTitle}>Language Requirements</h3>
+              <div className={styles.languagesList}>
+                {humanLanguages.map((lang, idx) => (
+                  <div key={idx} className={styles.languageItem}>
+                    <span className={styles.languageName}>{lang.name}</span>
+                    {lang.level && (
+                      <span className={styles.languageLevel}>
+                        {lang.level.charAt(0).toUpperCase() + lang.level.slice(1)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Candidate Message */}
           {job.freeText && (
             <section className={styles.section}>
-              <h3>Candidate message</h3>
-              <p>{job.freeText}</p>
+              <h3 className={styles.sectionTitle}>Additional Notes</h3>
+              <p className={styles.freeText}>{job.freeText}</p>
             </section>
+          )}
+            </>
           )}
         </div>
 

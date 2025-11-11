@@ -6,29 +6,34 @@ Schema:
   "experience_clusters": [
     {
       "category": "tech" | "military" | "hospitality" | "other",
-      "normalized_roles": [string],          // normalized/English roles if possible, from given titles only
-      "original_roles": [string],            // original titles as they appeared
-      "members": [                           // use if structured experience with dates exists
+      "normalized_roles": [string],
+      "original_roles": [string],
+      "members": [
         {"title": string|null, "company": string|null, "start_date": string|null, "end_date": string|null}
       ],
-      "spans": [                             // use if only free-text years exist (e.g., "3 שנים")
+      "spans": [
         {"source": string, "years": number}
       ],
       "total_years": number,
-      "reasoning": string,                   // short human-readable note; keep it concise
-      "confidence": number                   // 0..1
+      "reasoning": string,
+      "confidence": number
     }
   ],
   "totals_by_category": { "tech": number, "military": number, "hospitality": number, "other": number },
-  "recommended_primary_years": { "tech": number } // include only if present in input; prefer "tech"
+  "recommended_primary_years": { "tech": number }
 }
 
 Rules:
+- Include ONLY *formal employment experience* (paid work for companies or organizations).  
+  ❌ Exclude: volunteer work, personal or academic projects, student exercises, internships without pay, hackathons, or hobby projects.  
+  ✅ Include: actual roles in companies, startups, military units, or recognized workplaces.
 - Cluster ONLY within the same domain. Do not sum across different domains.
-- Normalize role typos (e.g., "SOFTWARE ENGAINER" -> "software engineer") but never add roles not present in the text.
-- If dates are present, merge overlapping/continuous spans ONLY within the same category.
-- If only “N years” lines are present, sum them within the category; otherwise leave empty.
-- If a field is missing, prefer null/[] and set years to 0 when uncertain. Do not hallucinate.
-- Keep provenance: use "original_roles" and either "members" or "spans" so outputs can be explained.
-- Follow numeric rounding conventions implied by the caller (do not round aggressively; decimals are allowed).
-- Output JSON ONLY. No prose outside JSON.
+- Normalize obvious typos (e.g. “SOFTWARE ENGAINER” → “software engineer”), but never infer or add roles not present.
+- If roles or companies are missing, prefer null.
+- If dates exist, merge overlapping/continuous spans within the same category.
+- If only “N years” phrases exist, sum them within the same category.
+- Use `reasoning` to briefly justify inclusion/exclusion (e.g., “included: formal job title at company; excluded: volunteer project”).
+- Keep `confidence` lower (≤0.6) when the source looks like a project or unclear employment.
+- Set years = 0 when uncertain.
+- Never fabricate company names or years.
+- Output JSON ONLY. No text or comments outside JSON.
