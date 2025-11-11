@@ -15,7 +15,7 @@ from pgvector.sqlalchemy import Vector
 
 from app.db.base import Base  # IMPORTANT: Base must be imported
 
-EMBED_DIM = 3072
+EMBED_DIM = 1536
 
 
 class Job(Base):

@@ -90,13 +90,37 @@ def parse_to_text(path: Path) -> str:
 
 _SECTION_HEADINGS = (
     "experience|education|skills(?:\\s*&\\s*abilities)?|projects|summary|languages|certifications|achievements|"
-    "ניסיון|השכלה|מיומנויות|פרויקטים|סיכום|שפות|הסמכות"
+    "professional\\s+experience|work\\s+experience|employment|academic\\s+background|qualifications|"
+    "technical\\s+skills|core\\s+competencies|expertise|"
+    "ניסיון|ניסיון תעסוקתי|ניסיון מקצועי|השכלה|השכלה אקדמית|מיומנויות|כישורים|פרויקטים|סיכום|שפות|הסמכות|כישורים טכניים"
 )
+
+def _extract_person_header(text: str) -> tuple[str, str]:
+    """
+    Extract potential header section (name, contact info) from top of resume.
+    Returns (header_text, remaining_text).
+    """
+    lines = text.splitlines()
+    header_lines = []
+    
+    # Take up to first 10 lines or until we hit a section heading
+    pattern = re.compile(rf"^\s*({_SECTION_HEADINGS})\s*[:\-]?\s*$", re.I)
+    for i, line in enumerate(lines[:15]):
+        if pattern.match(line.strip()):
+            return "\n".join(header_lines), "\n".join(lines[i:])
+        header_lines.append(line)
+    
+    # If no section found in first 15 lines, take first 5 as header
+    if len(lines) > 5:
+        return "\n".join(lines[:5]), "\n".join(lines[5:])
+    return "", text
+
 
 def _split_by_headings(text: str) -> list[tuple[str, str]]:
     """
     Split text based on common section headings (English + Hebrew).
     We keep headings-only lines as boundaries to improve chunk topicality.
+    Enhanced to handle multi-word headings and variations.
     """
     pattern = re.compile(rf"^\s*({_SECTION_HEADINGS})\s*[:\-]?\s*$", re.I)
     sections, buffer = [], []
@@ -116,15 +140,28 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
 
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Zא-ת0-9])")
+_BULLET_PATTERN = re.compile(r"^[\s]*[•\-\*\–]\s*", re.MULTILINE)
 
-def _chunk_long_text_sentence_aware(txt: str, max_chars: int = 1200, overlap: int = 160) -> list[str]:
+def _chunk_long_text_sentence_aware(txt: str, max_chars: int = 1500, overlap: int = 200) -> list[str]:
     """
     Split long text into overlapping windows, attempting to break on sentence
     boundaries to keep chunks semantically coherent.
+    Enhanced with:
+    - Larger chunks (1500 chars) for better context
+    - Larger overlap (200 chars) to preserve continuity
+    - Bullet-aware splitting for experience sections
     """
     if len(txt) <= max_chars:
         return [txt]
 
+    # Check if text has bullet points (likely experience/skills section)
+    has_bullets = bool(_BULLET_PATTERN.search(txt))
+    
+    if has_bullets:
+        # For bulleted content, try to keep related bullets together
+        return _chunk_bulleted_text(txt, max_chars, overlap)
+    
+    # Standard sentence-based chunking
     sentences = _SENT_SPLIT.split(txt)
     chunks: list[str] = []
     cur = ""
@@ -147,22 +184,122 @@ def _chunk_long_text_sentence_aware(txt: str, max_chars: int = 1200, overlap: in
     return chunks
 
 
+def _chunk_bulleted_text(txt: str, max_chars: int, overlap: int) -> list[str]:
+    """
+    Chunk text with bullet points, trying to keep job entries together.
+    Used for experience/skills sections.
+    """
+    # Split by likely job/role boundaries (date patterns or company headers)
+    # This is a heuristic: look for patterns like "2020-2022" or "Company Name"
+    date_pattern = re.compile(r'\b\d{4}\s*[-–—]\s*(?:\d{4}|present|current)\b', re.I)
+    
+    paragraphs = txt.split('\n\n')
+    chunks: list[str] = []
+    cur = ""
+    
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+            
+        # If current + para fits, add it
+        if not cur or len(cur) + len(para) + 2 <= max_chars:
+            cur = cur + "\n\n" + para if cur else para
+        else:
+            # Current chunk is full, save it
+            if cur:
+                chunks.append(cur.strip())
+            
+            # Start new chunk with overlap
+            if overlap > 0 and len(cur) > overlap:
+                cur = cur[-overlap:] + "\n\n" + para
+            else:
+                cur = para
+    
+    if cur.strip():
+        chunks.append(cur.strip())
+    
+    return chunks if chunks else [txt]
+
+
 def chunk_resume_text(parsed_text: str) -> list[ResumeChunk]:
     """
-    Generate ResumeChunk objects for each text segment. We first split by
-    headings; within each section we generate sentence-aware windows.
+    Generate ResumeChunk objects for each text segment. 
+    Enhanced strategy:
+    1. Extract header (name, contact) as separate chunk
+    2. Split by section headings
+    3. Within each section, create context-aware chunks
+    4. Add metadata for better embedding quality
     """
     chunks: list[ResumeChunk] = []
     order = 0
-    for section, sec_text in _split_by_headings(parsed_text):
-        for piece in _chunk_long_text_sentence_aware(sec_text):
+    
+    # Extract header section first
+    header, remaining = _extract_person_header(parsed_text)
+    if header.strip():
+        chunks.append(ResumeChunk(
+            section="header",
+            ord=order,
+            text=header.strip(),
+            language=_detect_language(header)
+        ))
+        order += 1
+    
+    # Process remaining sections
+    for section, sec_text in _split_by_headings(remaining):
+        # Determine chunk size based on section type
+        if section in ('experience', 'ניסיון'):
+            # Larger chunks for experience to keep roles together
+            max_chars, overlap = 2000, 300
+        elif section in ('skills', 'מיומנויות'):
+            # Medium chunks for skills
+            max_chars, overlap = 1200, 150
+        else:
+            # Default
+            max_chars, overlap = 1500, 200
+        
+        for piece in _chunk_long_text_sentence_aware(sec_text, max_chars, overlap):
             if piece.strip():
-                chunks.append(ResumeChunk(section=section, ord=order, text=piece.strip()))
+                chunks.append(ResumeChunk(
+                    section=section,
+                    ord=order,
+                    text=piece.strip(),
+                    language=_detect_language(piece)
+                ))
                 order += 1
 
     # Fallback: if no headings found at all, chunk entire text
     if not chunks:
         for piece in _chunk_long_text_sentence_aware(parsed_text):
             if piece.strip():
-                chunks.append(ResumeChunk(section=None, ord=len(chunks), text=piece.strip()))
+                chunks.append(ResumeChunk(
+                    section=None,
+                    ord=len(chunks),
+                    text=piece.strip()
+                ))
     return chunks
+
+
+def _detect_language(text: str) -> str:
+    """
+    Simple heuristic language detection for Hebrew vs English.
+    Returns 'he', 'en', or 'mixed'.
+    """
+    if not text:
+        return 'en'
+    
+    # Count Hebrew vs Latin characters
+    hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
+    latin_chars = len(re.findall(r'[a-zA-Z]', text))
+    
+    total = hebrew_chars + latin_chars
+    if total == 0:
+        return 'en'
+    
+    hebrew_ratio = hebrew_chars / total
+    if hebrew_ratio > 0.6:
+        return 'he'
+    elif hebrew_ratio > 0.2:
+        return 'mixed'
+    else:
+        return 'en'

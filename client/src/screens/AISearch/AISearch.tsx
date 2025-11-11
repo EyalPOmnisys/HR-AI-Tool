@@ -2,14 +2,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactElement } from 'react';
 import styles from './AISearch.module.css';
-import { analyticsByJobId } from '../../data/aiSearchData';
-import type { JobAnalytics } from '../../types/ai-search';
 import Form from '../../components/ai-search/Form/Form';
 import Loading from '../../components/ai-search/Loading/Loading';
 import Dashboard from '../../components/ai-search/Dashboard/Dashboard';
 import { listJobs } from '../../services/jobs';
 import type { ApiJob } from '../../types/job';
 import ProgressSteps from '../../components/ai-search/ProgressSteps/ProgressSteps';
+import { runMatch } from '../../services/match';
+import type { MatchRunResponse } from '../../types/match';
 
 type ViewState = 'form' | 'loading' | 'results';
 
@@ -32,13 +32,14 @@ export default function AISearch(): ReactElement {
   const [selectedJobId, setSelectedJobId] = useState('');
 
   // Form state
-  const [desiredCandidates, setDesiredCandidates] = useState(3);
+  const [desiredCandidates, setDesiredCandidates] = useState(10);
 
   // View state
   const [view, setView] = useState<ViewState>('form');
 
-  // Analytics data (mock)
-  const [activeAnalytics, setActiveAnalytics] = useState<JobAnalytics | null>(null);
+  // Match results from backend
+  const [matchResults, setMatchResults] = useState<MatchRunResponse | null>(null);
+  const [matchError, setMatchError] = useState<string | null>(null);
 
   // Loading sequence control
   const [activeLoadingMessage, setActiveLoadingMessage] = useState(0);
@@ -116,13 +117,14 @@ export default function AISearch(): ReactElement {
     if (loadingTickerRef.current) clearInterval(loadingTickerRef.current);
   }, []);
 
-  const handleGenerate = (event: FormEvent<HTMLFormElement>) => {
+  const handleGenerate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedJobId) return;
 
     // Reset and go to loading
     resetTimers();
     setActiveLoadingMessage(0);
+    setMatchError(null);
     setView('loading');
 
     // Cycle through loading messages every 2s
@@ -130,18 +132,30 @@ export default function AISearch(): ReactElement {
       setActiveLoadingMessage((prev) => (prev + 1) % loadingMessages.length);
     }, 2000);
 
-    // Simulate 10s processing then show results
-    loadingTimerRef.current = setTimeout(() => {
+    try {
+      // Call the real API with user-selected number of candidates
+      const result = await runMatch({
+        job_id: selectedJobId,
+        top_n: desiredCandidates,
+        min_threshold: 0,
+      });
+
       resetTimers();
-      const analytics = analyticsByJobId[selectedJobId];
-      setActiveAnalytics(analytics);
+      setMatchResults(result);
       setView('results');
-    }, 10000);
+    } catch (error) {
+      resetTimers();
+      setMatchError(error instanceof Error ? error.message : 'Failed to run match');
+      setView('form');
+      console.error('Match error:', error);
+    }
   };
 
   const handleRunAnotherSearch = () => {
     resetTimers();
     setActiveLoadingMessage(0);
+    setMatchResults(null);
+    setMatchError(null);
     setView('form');
   };
 
@@ -176,6 +190,7 @@ export default function AISearch(): ReactElement {
           desiredCandidates={desiredCandidates}
           selectedJob={selectedJob}
           isLoadingJobs={isLoadingJobs}
+          error={matchError}
           onJobChange={handleJobChange}
           onCandidateChange={handleCandidateChange}
           onSubmit={handleGenerate}
@@ -186,8 +201,8 @@ export default function AISearch(): ReactElement {
         <Loading messages={loadingMessages} activeIndex={activeLoadingMessage} />
       )}
 
-      {view === 'results' && activeAnalytics && (
-        <Dashboard analytics={activeAnalytics} desiredCandidates={desiredCandidates} />
+      {view === 'results' && matchResults && (
+        <Dashboard matchResults={matchResults} selectedJob={selectedJob} />
       )}
     </div>
   );

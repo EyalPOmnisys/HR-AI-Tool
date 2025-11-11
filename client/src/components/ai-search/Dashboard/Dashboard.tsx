@@ -1,11 +1,11 @@
 import styles from './Dashboard.module.css'
-import type { JobAnalytics } from '../../../types/ai-search'
-import { FiDownload, FiBriefcase, FiTarget, FiTrendingUp, FiUsers } from 'react-icons/fi'
-import { HiCheckCircle } from 'react-icons/hi2'
+import type { MatchRunResponse } from '../../../types/match'
+import type { ApiJob } from '../../../types/job'
+import { FiDownload, FiUsers, FiTrendingUp, FiAward } from 'react-icons/fi'
 
 type Props = {
-  analytics: JobAnalytics
-  desiredCandidates: number
+  matchResults: MatchRunResponse
+  selectedJob?: ApiJob
 }
 
 // Helper: score color based on percentage
@@ -16,147 +16,134 @@ function getScoreColor(score: number): string {
   return '#ef4444' // red
 }
 
-export default function Dashboard({ analytics, desiredCandidates }: Props) {
-  const visibleCandidates = analytics.recommendedCandidates
-    .slice(0, desiredCandidates)
-    .sort((a, b) => b.score - a.score) // Sort from highest to lowest score
+export default function Dashboard({ matchResults, selectedJob }: Props) {
+  const candidates = matchResults.candidates;
   const avgScore =
-    visibleCandidates.length > 0
-      ? Math.round(visibleCandidates.reduce((sum, c) => sum + c.score, 0) / visibleCandidates.length)
-      : 0
-  const pipelineTotal = analytics.pipeline.reduce((sum, s) => sum + s.count, 0)
+    candidates.length > 0
+      ? Math.round(candidates.reduce((sum, c) => sum + c.match, 0) / candidates.length)
+      : 0;
 
   return (
     <section className={styles.resultsSection}>
       {/* Candidates Table */}
       <div className={styles.tableSection}>
-        <table className={styles.candidateTable}>
-          <thead>
-            <tr>
-              <th>🎯 Match</th>
-              <th>👤 Candidate</th>
-              <th>📅 Experience</th>
-              <th>✉️ Email</th>
-              <th>📞 Phone</th>
-              <th>📄 Resume</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleCandidates.map((candidate) => (
-              <tr key={candidate.id}>
-                <td>
-                  <div className={styles.scoreContainer}>
-                    <div
-                      className={styles.scoreBadge}
-                      style={{ backgroundColor: getScoreColor(candidate.score) }}
-                    >
-                      {candidate.score}%
-                    </div>
-                  </div>
-                </td>
-                <td className={styles.nameCell}>
-                  <span className={styles.candidateName}>{candidate.name}</span>
-                  <span className={styles.roleSpan}>{candidate.currentRole}</span>
-                </td>
-                <td>{candidate.experience}</td>
-                <td>
-                  <a href={`mailto:${candidate.email}`} className={styles.contactLink}>
-                    {candidate.email}
-                  </a>
-                </td>
-                <td>
-                  <a href={`tel:${candidate.phone}`} className={styles.contactLink}>
-                    {candidate.phone}
-                  </a>
-                </td>
-                <td>
-                  <a href={candidate.resumeUrl} target="_blank" rel="noopener noreferrer" className={styles.resumeLink}>
-                    <FiDownload size={16} style={{ marginRight: '6px' }} />
-                    Resume
-                  </a>
-                </td>
+        {candidates.length === 0 ? (
+          <div style={{ padding: '48px', textAlign: 'center', color: '#999' }}>
+            <p style={{ fontSize: '1.2rem', margin: 0 }}>No candidates found matching the criteria</p>
+          </div>
+        ) : (
+          <table className={styles.candidateTable}>
+            <thead>
+              <tr>
+                <th>🎯 Match</th>
+                <th>👤 Candidate</th>
+                <th>📅 Experience</th>
+                <th>✉️ Email</th>
+                <th>📞 Phone</th>
+                <th>📄 Resume</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {candidates.map((candidate) => (
+                <tr key={candidate.resume_id}>
+                  <td>
+                    <div className={styles.scoreContainer}>
+                      <div
+                        className={styles.scoreBadge}
+                        style={{ backgroundColor: getScoreColor(candidate.match) }}
+                      >
+                        {candidate.match}%
+                      </div>
+                      {candidate.llm_verdict && (
+                        <span style={{ fontSize: '0.7rem', color: '#666', marginLeft: '8px' }}>
+                          {candidate.llm_verdict === 'strong_fit' && '💪'}
+                          {candidate.llm_verdict === 'partial_fit' && '🤔'}
+                          {candidate.llm_verdict === 'weak_fit' && '⚠️'}
+                          {candidate.llm_verdict === 'no_fit' && '❌'}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={styles.nameCell}>
+                    <span className={styles.candidateName}>
+                      {candidate.candidate || 'Unknown'}
+                    </span>
+                  </td>
+                  <td>{candidate.experience || '—'}</td>
+                  <td>
+                    {candidate.email ? (
+                      <a href={`mailto:${candidate.email}`} className={styles.contactLink}>
+                        {candidate.email}
+                      </a>
+                    ) : (
+                      <span style={{ color: '#999' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {candidate.phone ? (
+                      <a href={`tel:${candidate.phone}`} className={styles.contactLink}>
+                        {candidate.phone}
+                      </a>
+                    ) : (
+                      <span style={{ color: '#999' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {candidate.resume_url ? (
+                      <a
+                        href={candidate.resume_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.resumeLink}
+                      >
+                        <FiDownload size={16} style={{ marginRight: '6px' }} />
+                        Resume
+                      </a>
+                    ) : (
+                      <span style={{ color: '#999' }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {/* Analytics Section */}
-      <div className={styles.analyticsSection}>
-        {/* Key Metrics */}
-        <div className={styles.metricsRow}>
-          <div className={styles.metricBox}>
-            <div className={styles.metricIcon}>
-              <FiTarget size={24} />
+      {/* Statistics Section */}
+      {candidates.length > 0 && (
+        <div className={styles.statsSection}>
+          <div className={styles.statsGrid}>
+            <div className={styles.statCard}>
+              <div className={styles.statIcon}>
+                <FiUsers size={24} />
+              </div>
+              <div className={styles.statLabel}>Candidates Found</div>
+              <div className={styles.statValue}>{matchResults.returned} / {matchResults.requested_top_n}</div>
             </div>
-            <p className={styles.metricLabel}>Average Match Score</p>
-            <p className={styles.metricBigValue}>{avgScore}%</p>
-          </div>
-          <div className={styles.metricBox}>
-            <div className={styles.metricIcon}>
-              <FiUsers size={24} />
+            <div className={styles.statCard}>
+              <div className={styles.statIcon}>
+                <FiTrendingUp size={24} />
+              </div>
+              <div className={styles.statLabel}>Average Match</div>
+              <div className={styles.statValue} style={{ color: getScoreColor(avgScore) }}>
+                {avgScore}%
+              </div>
             </div>
-            <p className={styles.metricLabel}>Pipeline Candidates</p>
-            <p className={styles.metricBigValue}>{pipelineTotal}</p>
-          </div>
-          <div className={styles.metricBox}>
-            <div className={styles.metricIcon}>
-              <HiCheckCircle size={24} />
+            {/* Placeholder for more stats */}
+            <div className={styles.statCard}>
+              <div className={styles.statIcon}>
+                <FiAward size={24} />
+              </div>
+              <div className={styles.statLabel}>Top Score</div>
+              <div className={styles.statValue}>
+                {candidates.length > 0 ? `${Math.max(...candidates.map(c => c.match))}%` : '—'}
+              </div>
             </div>
-            <p className={styles.metricLabel}>Avg Culture Add</p>
-            <p className={styles.metricBigValue}>{analytics.metrics.cultureAdd}%</p>
-          </div>
-          <div className={styles.metricBox}>
-            <div className={styles.metricIcon}>
-              <FiTrendingUp size={24} />
-            </div>
-            <p className={styles.metricLabel}>Hiring Velocity</p>
-            <p className={styles.metricBigValue}>{analytics.metrics.velocity}%</p>
           </div>
         </div>
-
-        {/* Pipeline + Skills */}
-        <div className={styles.chartsGrid}>
-          <div className={styles.chartBox}>
-            <h3>
-              <FiBriefcase size={20} style={{ marginRight: '8px', verticalAlign: 'middle', color: '#8b5cf6' }} />
-              Pipeline Distribution
-            </h3>
-            <ul className={styles.pipelineList}>
-              {analytics.pipeline.map((stage) => (
-                <li key={stage.label} className={styles.pipelineRow}>
-                  <span className={styles.pipelineLabel}>{stage.label}</span>
-                  <div className={styles.pipelineBar}>
-                    <div
-                      className={styles.pipelineFill}
-                      style={{ width: `${Math.min((stage.count / pipelineTotal) * 100, 100)}%` }}
-                    ></div>
-                  </div>
-                  <span className={styles.pipelineCount}>{stage.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className={styles.chartBox}>
-            <h3>
-              <FiTarget size={20} style={{ marginRight: '8px', verticalAlign: 'middle', color: '#06b6d4' }} />
-              Top Skills
-            </h3>
-            <ul className={styles.skillsList}>
-              {analytics.skillFocus.slice(0, 5).map((skill) => (
-                <li key={skill.skill} className={styles.skillRow}>
-                  <span className={styles.skillName}>{skill.skill}</span>
-                  <div className={styles.skillBar}>
-                    <div className={styles.skillFill} style={{ width: `${skill.percentage}%` }}></div>
-                  </div>
-                  <span className={styles.skillPercent}>{skill.percentage}%</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
+      )}
     </section>
   )
 }
+

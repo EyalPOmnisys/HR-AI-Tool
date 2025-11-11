@@ -1,6 +1,19 @@
-# path: backend/app/db/session.py
-# Purpose: Keep a dedicated module for typing/consistency if extended later.
-# Notes: Kept minimal—imported by other modules if needed for type hints.
-from sqlalchemy.orm import Session  # re-export for convenience
+# backend/app/db/session.py
+from __future__ import annotations
+from typing import AsyncGenerator
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from app.core.config import settings
 
-__all__ = ["Session"]
+ASYNC_URL = settings.database_url_async_effective  # נגזר אוטומטית מ-DATABASE_URL
+
+async_engine = create_async_engine(ASYNC_URL, pool_pre_ping=True)
+
+AsyncSessionLocal = async_sessionmaker(
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session

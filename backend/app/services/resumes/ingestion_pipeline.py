@@ -29,6 +29,11 @@ from app.services.resumes.parsing_utils import (
     chunk_resume_text,
 )
 from app.services.resumes.extraction_pipeline import extract_structured
+from app.services.resumes.embedding_utils import (
+    enrich_chunk_for_embedding,
+    create_search_optimized_embedding_text,
+)
+from app.services.resumes.validation import validate_extraction, create_quality_report
 
 
 # ---------------------------------------------------------------------
@@ -63,7 +68,34 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
         resume_repo.set_status(db, resume, status="extracting")
         resume = extract_structured(db, resume)
 
-        resume_repo.set_status(db, resume, status="parsed")
+        # Validate extraction quality
+        if resume.extraction_json:
+            validation = validate_extraction(resume.extraction_json)
+            
+            # Add quality report to extraction_json
+            if "meta" not in resume.extraction_json:
+                resume.extraction_json["meta"] = {}
+            resume.extraction_json["meta"]["quality_report"] = validation.summary
+            
+            # Log warnings
+            if validation.warnings:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Resume {resume.id} quality warnings: {validation.warnings}")
+            
+            # If critical errors, mark status
+            if not validation.is_valid:
+                resume_repo.set_status(
+                    db, 
+                    resume, 
+                    status="warning",
+                    error=f"Quality issues: {', '.join(validation.errors[:3])}"
+                )
+            else:
+                resume_repo.set_status(db, resume, status="parsed")
+        else:
+            resume_repo.set_status(db, resume, status="parsed")
+        
         return resume
 
     except Exception as e:
@@ -78,9 +110,15 @@ def chunk_and_embed(db: Session, resume: Resume) -> Resume:
     chunks = chunk_resume_text(resume.parsed_text)
     chunks = resume_repo.bulk_add_chunks(db, resume, chunks)
 
-    # Embed full resume text
+    # Get person name from extraction for enrichment
+    extraction = resume.extraction_json or {}
+    person = extraction.get("person", {})
+    person_name = person.get("name")
+
+    # Create optimized full-resume embedding
     try:
-        full_emb = default_embedding_client.embed(resume.parsed_text)
+        full_text = create_search_optimized_embedding_text(resume)
+        full_emb = default_embedding_client.embed(full_text)
         resume_repo.attach_resume_embedding(db, resume, embedding=full_emb)
     except Exception as e:
         resume_repo.set_status(
@@ -90,7 +128,7 @@ def chunk_and_embed(db: Session, resume: Resume) -> Resume:
             error=f"full embedding failed: {e}",
         )
 
-    # Embed each chunk
+    # Embed each chunk with enrichment
     resume_repo.set_status(db, resume, status="embedding")
     model = getattr(settings, "EMBEDDING_MODEL", None)
     version = getattr(settings, "ANALYSIS_VERSION", None)
@@ -98,7 +136,15 @@ def chunk_and_embed(db: Session, resume: Resume) -> Resume:
     any_failure = False
     for ch in chunks:
         try:
-            emb = default_embedding_client.embed(ch.text)
+            # Enrich chunk text with context for better embeddings
+            enriched_text = enrich_chunk_for_embedding(
+                chunk=ch,
+                resume=resume,
+                person_name=person_name,
+                extraction_json=extraction
+            )
+            
+            emb = default_embedding_client.embed(enriched_text)
             resume_repo.upsert_chunk_embedding(
                 db, ch, embedding=emb, model=model, version=version
             )

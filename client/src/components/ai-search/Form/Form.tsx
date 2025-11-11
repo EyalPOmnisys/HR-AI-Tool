@@ -9,6 +9,7 @@ type Props = {
   desiredCandidates: number;
   selectedJob?: ApiJob;
   isLoadingJobs: boolean;
+  error?: string | null;
   onJobChange: (e: ChangeEvent<HTMLSelectElement>) => void;
   onCandidateChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
@@ -39,6 +40,7 @@ export default function Form({
   desiredCandidates,
   selectedJob,
   isLoadingJobs,
+  error,
   onJobChange,
   onCandidateChange,
   onSubmit,
@@ -91,7 +93,7 @@ export default function Form({
 
               <div className={styles.field}>
                 <label htmlFor="candidateCount" className={styles.label}>
-                  Number of candidates
+                  Number of candidates (1-20)
                 </label>
                 <input
                   id="candidateCount"
@@ -112,6 +114,11 @@ export default function Form({
                 >
                   Generate AI Shortlist
                 </button>
+                {error && (
+                  <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#fee', borderRadius: '8px', color: '#c00' }}>
+                    <strong>Error:</strong> {error}
+                  </div>
+                )}
               </div>
             </div>
 

@@ -12,3 +12,4 @@ pdfplumber
 python-docx
 watchdog
 openai>=1.46.0
+asyncpg

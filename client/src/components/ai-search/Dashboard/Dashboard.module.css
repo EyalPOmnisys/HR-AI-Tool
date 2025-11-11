@@ -139,6 +139,55 @@
   text-decoration: underline;
 }
 
+/* STATISTICS SECTION */
+.statsSection {
+  margin-top: 8px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.statCard {
+  padding: 20px;
+  background: #fffbeb;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #fef3c7;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.statIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  color: #f59e0b;
+}
+
+.statLabel {
+  font-size: 0.8rem;
+  color: #78716c;
+  font-weight: 500;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #292524;
+}
+
 /* ANALYTICS SECTION */
 .analyticsSection {
   display: flex;

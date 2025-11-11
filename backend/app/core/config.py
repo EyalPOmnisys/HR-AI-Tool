@@ -9,15 +9,18 @@ ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    """Global application settings loaded from environment variables."""
-
+    
     # --- Database ---
-    DATABASE_URL: str = Field(..., description="Full PostgreSQL connection URL")
+    DATABASE_URL: str = Field(..., description="Full PostgreSQL connection URL (sync, e.g., postgresql+psycopg://...)")
+    DATABASE_URL_ASYNC: str | None = Field(
+        default=None,
+        description="Async PostgreSQL URL (e.g., postgresql+asyncpg://...). Optional; derived if missing.",
+    )
 
     # --- App info ---
     APP_NAME: str = Field(default="HR-AI Backend")
 
-    # --- AI Models & Services (Ollama keys kept for backward compatibility if you still use them elsewhere) ---
+    # --- AI Models & Services (legacy-friendly fields kept for compatibility) ---
     OLLAMA_BASE_URL: str | None = Field(default=None, description="Base URL of local Ollama server")
     LLM_CHAT_MODEL: str | None = Field(default=None, description="Model used for job analysis (legacy)")
     EMBEDDING_MODEL: str | None = Field(default=None, description="Model used for text embeddings (legacy)")
@@ -36,6 +39,18 @@ class Settings(BaseSettings):
     class Config:
         env_file = str(ENV_PATH)
         case_sensitive = True
+
+    @property
+    def database_url_async_effective(self) -> str:
+        """
+        Prefer DATABASE_URL_ASYNC; if it's missing, derive from DATABASE_URL by swapping
+        '+psycopg' -> '+asyncpg'. If no swap is possible, return DATABASE_URL as-is.
+        """
+        if self.DATABASE_URL_ASYNC:
+            return self.DATABASE_URL_ASYNC
+        if "+psycopg" in self.DATABASE_URL:
+            return self.DATABASE_URL.replace("+psycopg", "+asyncpg")
+        return self.DATABASE_URL
 
 
 settings = Settings()
