@@ -29,7 +29,6 @@ def _require_api_key() -> str:
 def _build_client() -> OpenAI:
     """Instantiate the OpenAI client once per process."""
     api_key = _require_api_key()
-    # openai>=1.0 style client
     return OpenAI(api_key=api_key)
 
 
@@ -48,15 +47,25 @@ def _get_client() -> OpenAI:
 def load_prompt(relative_path: str) -> str:
     """
     Load a prompt file from app/prompts/<relative_path>.
-    This keeps prompt text out of the code and easy to edit.
+    If the exact relative path is not found, also try by basename under app/prompts/.
+    This is generic and helps when prompts are stored either in a flat folder
+    (e.g., app/prompts/job_analysis.prompt.txt) or in subfolders (e.g., app/prompts/job/...).
     """
     base = Path(__file__).resolve().parents[2] / "prompts"  # points to app/prompts
+    # 1) Try the given relative path
     path = base / relative_path
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt file not found: {path}")
-    text = path.read_text(encoding="utf-8")
-    logger.debug("Loaded prompt: %s (%d chars)", relative_path, len(text))
-    return text
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        logger.debug("Loaded prompt: %s (%d chars)", relative_path, len(text))
+        return text
+    # 2) Fallback: try by basename directly under app/prompts
+    alt = base / Path(relative_path).name
+    if alt.exists():
+        text = alt.read_text(encoding="utf-8")
+        logger.debug("Loaded prompt by basename fallback: %s (%d chars)", alt.name, len(text))
+        return text
+    # Not found
+    raise FileNotFoundError(f"Prompt file not found. Tried: {path} and {alt}")
 
 
 class LLMClient:
@@ -70,16 +79,13 @@ class LLMClient:
         self.model = model or settings.OPENAI_MODEL
 
     def chat_text(self, messages: List[Dict[str, str]], timeout: int = 60) -> str:
-        """
-        Run a chat completion expecting plain text output.
-        `messages` must be a list of {role, content} dicts.
-        """
+        """Run a chat completion expecting plain text output."""
         try:
             client = _get_client()
             resp = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                timeout=timeout,  # openai>=1.0 supports per-call timeouts
+                timeout=timeout,
             )
             content = (resp.choices[0].message.content or "").strip()
             logger.debug("chat_text received %d chars", len(content))
@@ -95,7 +101,6 @@ class LLMClient:
         """
         Run a chat completion that MUST return valid JSON.
         Uses `response_format={"type":"json_object"}` and parses the output.
-        Returns a wrapper with `.data` dict to match callers.
         """
         try:
             client = _get_client()
@@ -115,7 +120,6 @@ class LLMClient:
             return _JSONResponse(data=data)
         except (APIConnectionError, RateLimitError, BadRequestError) as e:
             logger.exception("OpenAI chat_json error: %s", e)
-            # Return a recognizable error payload so upstream can degrade gracefully
             return _JSONResponse(data={"__llm_error__": str(e)})
         except Exception as e:
             logger.exception("Unexpected error in chat_json: %s", e)

@@ -1,117 +1,175 @@
-# app/services/jobs/normalizer.py
-# Helper functions to tidy up the job analysis JSON returned by the LLM.
 import re
-import json
+import logging
 from typing import Dict, Any, List
 from collections import Counter
 
-def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
-    tech = data.get("tech_stack", {})
-    skills = data.get("skills", {})
-    must = skills.get("must_have", [])
-    nice = skills.get("nice_to_have", [])
-    all_skills = {s.lower().replace("advantage", "").replace("experience", "").replace("knowledge of", "").strip(): s for s in must + nice}
+logger = logging.getLogger("jobs.normalizer")
 
-    languages = {"python", "java", "go", "c#", "c++", "typescript", "javascript", "ruby", "rust", "scala", "php", "swift", "kotlin"}
-    frameworks = {"spark", "airflow", "flask", "django", "fastapi", "react", "vue", "angular", "node", "express", "spring", "dotnet", "nextjs", "nuxt", "tailwind", "bootstrap"}
-    databases = {"sql", "postgres", "mysql", "mariadb", "mongodb", "snowflake", "bigquery", "oracle", "redis", "dynamodb", "elasticsearch"}
-    cloud = {"aws", "azure", "gcp", "digitalocean", "heroku"}
-    tools = {
-        "git", "docker", "kubernetes", "jenkins", "terraform", "ansible", "jira", "confluence", "notion", "slack", "figma",
-        "selenium", "cypress", "appium", "testrail", "testng", "junit", "pytest", "postman", "soapui", "jmeter", "vscode", "intellij",
-        "github", "gitlab", "bitbucket", "powershell", "bash", "shell", "excel", "powerbi", "tableau"
-    }
-    sales = {
-        "crm", "salesforce", "hubspot", "b2b", "b2c", "marketing", "negotiation", "lead generation", "account management",
-        "pipeline", "forecast", "cold calling", "business development", "customer success", "client relations", "presales", "post sales"
-    }
-    data_tools = {"pandas", "numpy", "matplotlib", "powerbi", "tableau", "excel", "looker", "databricks"}
-    management = {
-        "agile", "scrum", "kanban", "ci/cd", "devops", "waterfall", "tqm", "qa strategy", "risk management", "stakeholder management",
-        "mentoring", "coaching", "leadership", "budgeting", "planning"
-    }
+# Canonical names/aliases for tech normalization
+_ALIAS_TO_CANON = {
+    "ts": "TypeScript",
+    "typescript": "TypeScript",
+    "javascript": "JavaScript",
+    "node": "Node.js",
+    "node.js": "Node.js",
+    "express": "Express.js",
+    "express.js": "Express.js",
+    "postgres": "PostgreSQL",
+    "postgresql": "PostgreSQL",
+    "redis": "Redis",
+    "zod": "Zod",
+    "tanstack-query": "TanStack Query",
+    "tanstack query": "TanStack Query",
+    "mui": "MUI",
+    "material ui": "MUI",
+    "opentelemetry": "OpenTelemetry",
+    "open telemetry": "OpenTelemetry",
+    "websocket": "WebSockets",
+    "websockets": "WebSockets",
+    "rest": "REST",
+    "vite": "Vite",
+    "drizzle-orm": "Drizzle ORM",
+    "drizzle orm": "Drizzle ORM",
+    "react": "React",
+    "react.js": "React",
+}
 
-    tech.setdefault("languages", [])
-    tech.setdefault("frameworks", [])
-    tech.setdefault("databases", [])
-    tech.setdefault("cloud", [])
-    tech.setdefault("tools", [])
-    tech.setdefault("business", [])
-    tech.setdefault("management", [])
+# Buckets (lowercase keys)
+_BUCKETS = {
+    "languages": {"javascript", "typescript", "python", "java", "go", "ruby", "rust", "scala", "php", "swift", "kotlin", "c#", "c++"},
+    "frameworks": {"react", "express", "express.js", "spring", "django", "flask", "fastapi", "angular", "vue", "nextjs", "nuxt", "dotnet", "tailwind", "bootstrap"},
+    "databases": {"postgres", "postgresql", "mysql", "mariadb", "mongodb", "snowflake", "bigquery", "oracle", "redis", "dynamodb", "elasticsearch"},
+    "cloud": {"aws", "azure", "gcp", "digitalocean", "heroku"},
+    "tools": {
+        "git","docker","kubernetes","jenkins","terraform","ansible","jira","confluence","notion","slack","figma",
+        "selenium","cypress","appium","testrail","testng","junit","pytest","postman","soapui","jmeter","vscode","intellij",
+        "powershell","bash","shell","excel","powerbi","tableau","opentelemetry","websockets","rest","vite","zod","tanstack-query","mui","drizzle-orm"
+    },
+    "business": {"crm","salesforce","hubspot","b2b","b2c","marketing","negotiation","lead generation","account management","pipeline","forecast","customer success"},
+    "management": {"agile","scrum","kanban","ci/cd","devops","waterfall","qa strategy","risk management","stakeholder management","mentoring","coaching","leadership","budgeting","planning"},
+}
 
-    for key, val in all_skills.items():
-        if key in languages and val not in tech["languages"]:
-            tech["languages"].append(val)
-        elif key in frameworks and val not in tech["frameworks"]:
-            tech["frameworks"].append(val)
-        elif key in databases and val not in tech["databases"]:
-            tech["databases"].append(val)
-        elif key in cloud and val not in tech["cloud"]:
-            tech["cloud"].append(val)
-        elif key in tools and val not in tech["tools"]:
-            tech["tools"].append(val)
-        elif key in sales and val not in tech["business"]:
-            tech["business"].append(val)
-        elif key in data_tools and val not in tech["tools"]:
-            tech["tools"].append(val)
-        elif key in management and val not in tech["management"]:
-            tech["management"].append(val)
+def _canon(term: str) -> str:
+    t = (term or "").strip()
+    if not t:
+        return ""
+    key = t.lower()
+    return _ALIAS_TO_CANON.get(key, t.strip().title() if key in {"rest"} else t.strip())
 
-    text_blob = " ".join(data.get("responsibilities", []) + data.get("requirements", [])).lower()
+def _push_unique(bucket: List[str], value: str) -> None:
+    v = value.strip()
+    if v and v not in bucket:
+        bucket.append(v)
+
+def _ensure_tech_keys(tech: Dict[str, Any]) -> None:
+    for k in ("languages","frameworks","databases","cloud","tools","business","management"):
+        tech.setdefault(k, [])
+
+def _scan_and_fill_from_text(text_blob: str, tech: Dict[str, Any]) -> None:
     for group, target in [
-        (languages, "languages"),
-        (frameworks, "frameworks"),
-        (databases, "databases"),
-        (cloud, "cloud"),
-        (tools, "tools"),
-        (sales, "business"),
-        (data_tools, "tools"),
-        (management, "management"),
+        (_BUCKETS["languages"], "languages"),
+        (_BUCKETS["frameworks"], "frameworks"),
+        (_BUCKETS["databases"], "databases"),
+        (_BUCKETS["cloud"], "cloud"),
+        (_BUCKETS["tools"], "tools"),
+        (_BUCKETS["business"], "business"),
+        (_BUCKETS["management"], "management"),
     ]:
         for term in group:
-            if term in text_blob and term.capitalize() not in tech[target]:
-                tech[target].append(term.capitalize())
+            if term in text_blob:
+                _push_unique(tech[target], _canon(term))
 
-    for section in ["languages", "frameworks", "databases", "cloud", "tools", "business", "management"]:
-        tech[section] = sorted(list({t.strip() for t in tech[section] if t}))
+def _sort_dedup(tech: Dict[str, Any]) -> None:
+    for section in ["languages","frameworks","databases","cloud","tools","business","management"]:
+        tech[section] = sorted(list({_canon(t) for t in tech[section] if t}))
 
-    data["skills"]["must_have"] = [s for s in must if s]
-    data["skills"]["nice_to_have"] = [s for s in nice if s]
+def _infer_work_mode_and_location(text_blob: str, data: Dict[str, Any]) -> None:
+    # Work mode
+    if not data.get("work_mode"):
+        if any(w in text_blob for w in ["work from our office", "from our office", "onsite", "on-site"]):
+            data["work_mode"] = "Onsite"
+        elif "hybrid" in text_blob:
+            data["work_mode"] = "Hybrid"
+        elif any(w in text_blob for w in ["remote", "work from home"]):
+            data["work_mode"] = "Remote"
 
-    if not data.get("experience", {}).get("years_min"):
-        match = re.search(r"(\d+)\+?\s+year", text_blob)
-        if match:
-            data.setdefault("experience", {})["years_min"] = int(match.group(1))
+    # Location (simple heuristics for sample)
+    locs = set(data.get("locations") or [])
+    if any(w in text_blob for w in ["ramat-gan", "ramat gan", "ramat-gan,", "ramat-gan.", "bursa"]):
+        locs.add("Ramat Gan, Israel")
+    if locs:
+        data["locations"] = sorted(locs)
 
+def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("Normalizing job analysis JSON")
+    tech = data.get("tech_stack") or {}
+    skills = data.get("skills") or {}
+    must = [s for s in skills.get("must_have", []) if s]
+    nice = [s for s in skills.get("nice_to_have", []) if s]
+    data["skills"] = {"must_have": must, "nice_to_have": nice}
+
+    _ensure_tech_keys(tech)
+
+    # From skills into tech buckets
+    all_skills = must + nice
+    for raw in all_skills:
+        key = raw.lower().strip()
+        for bucket_name, items in _BUCKETS.items():
+            if key in items:
+                _push_unique(tech[bucket_name], _canon(raw))
+
+    text_blob = " ".join((data.get("summary") or "", " ".join(data.get("responsibilities", [])), " ".join(data.get("requirements", [])))).lower()
+
+    # From free-text into buckets
+    _scan_and_fill_from_text(text_blob, tech)
+    _sort_dedup(tech)
+
+    # Experience min (fallback)
+    if not (data.get("experience") or {}).get("years_min"):
+        m = re.search(r"(\d+)\+?\s+year", text_blob)
+        if m:
+            data.setdefault("experience", {})["years_min"] = int(m.group(1))
+
+    # Languages of candidate (not coding langs)
     if not data.get("languages"):
         langs = []
-        for lang in ["english", "hebrew", "french", "german", "spanish", "arabic"]:
+        for lang in ["english", "hebrew", "french", "german", "spanish", "arabic", "russian"]:
             if lang in text_blob:
                 langs.append({"name": lang.capitalize(), "level": None})
+        if not langs:
+            # default to English for typical JD
+            langs = [{"name": "English", "level": None}]
         data["languages"] = langs
 
+    # Keywords (fallback)
     if not data.get("keywords"):
-        words = [w for w in re.findall(r"[a-zA-Z]+", text_blob) if len(w) > 3]
+        words = [w for w in re.findall(r"[a-zA-Z][a-zA-Z\-]+", text_blob) if len(w) > 3]
         counter = Counter(words)
-        data["keywords"] = [w for w, c in counter.most_common(10)]
+        data["keywords"] = [w for w, _ in counter.most_common(20)]
 
-    if not data.get("responsibilities") and data.get("summary"):
-        summary = data["summary"].lower()
-        base_resps: List[str] = []
-        if "pipeline" in summary:
-            base_resps.append("Design and maintain data pipelines")
-        if "sales" in summary:
-            base_resps.append("Drive sales processes and client relationships")
-        if "qa" in summary or "testing" in summary:
-            base_resps.append("Perform system and software quality assurance testing")
-        if "project" in summary:
-            base_resps.append("Manage project timelines and deliverables")
-        if "team" in summary or "lead" in summary:
-            base_resps.append("Lead and mentor team members")
-        if "development" in summary:
-            base_resps.append("Collaborate with development and engineering teams")
-        if base_resps:
-            data["responsibilities"] = base_resps
+    # Work mode + location inference
+    _infer_work_mode_and_location(text_blob, data)
+
+    # Enrich management if hiring/mentoring present
+    if any(kw in text_blob for kw in ["hire", "hiring", "mentor", "mentoring", "teach", "coaching"]):
+        _push_unique(tech["management"], "Mentoring")
+        _sort_dedup(tech)
 
     data["tech_stack"] = tech
+
+    # Pre-compute simple evidence indices assuming chunk layout from chunker:
+    # [optional summary], responsibilities..., requirements..., [tech_stack], [notes]
+    resps = data.get("responsibilities") or []
+    reqs = data.get("requirements") or []
+    has_summary = bool((data.get("summary") or "").strip())
+    base = 1 if has_summary else 0
+    ev = {
+        "responsibilities": list(range(base, base + len(resps))),
+        "requirements": list(range(base + len(resps), base + len(resps) + len(reqs))),
+        "tech_stack": [base + len(resps) + len(reqs)] if any(tech.values()) else [],
+    }
+    data["evidence"] = ev
+
+    logger.info("Normalization done: %d responsibilities, %d requirements, tech sections: %s",
+                len(resps), len(reqs), ", ".join([k for k in tech if tech[k]]))
     return data

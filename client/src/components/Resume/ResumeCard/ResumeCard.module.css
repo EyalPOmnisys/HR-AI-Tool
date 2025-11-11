@@ -105,10 +105,21 @@
   background: #f0fdf4;
   color: #065f46;
   border: 1px solid #bbf7d0;
+  min-width: 70%;
+  max-width: 100%;
+  justify-content: center;
 }
 
 .professionBadge .icon {
   color: #10b981;
+  flex-shrink: 0;
+}
+
+.professionBadge span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .metaItem span {

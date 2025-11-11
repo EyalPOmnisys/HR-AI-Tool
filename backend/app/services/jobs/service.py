@@ -1,17 +1,22 @@
-"""Job service orchestrating CRUD and AI enrichment for job postings."""
 from __future__ import annotations
 
 from typing import Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
+import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
+from app.models.job import Job, EMBED_DIM
 from app.repositories import job_repo
 from app.services.jobs.analyzer import analyze_job_text
+from app.services.jobs.chunker import build_chunks_from_analysis
+from app.services.jobs.embedding_pipeline import create_and_embed_chunks
+from app.services.common.text_normalizer import normalize_text_for_fts, approx_token_count
 from app.services.common.openai_service import get_openai_embedding
+from app.core.config import settings
 
+logger = logging.getLogger("jobs.service")
 
 def create_job(
     db: Session,
@@ -32,14 +37,11 @@ def create_job(
         status=status_final,
     )
 
-
 def get_job(db: Session, job_id: UUID) -> Optional[Job]:
     return job_repo.get(db, job_id)
 
-
 def list_jobs(db: Session, *, offset: int = 0, limit: int = 20) -> Tuple[list[Job], int]:
     return job_repo.list_paginated(db, offset=offset, limit=limit)
-
 
 def update_job(
     db: Session,
@@ -60,13 +62,10 @@ def update_job(
     )
     return job_repo.update(db, job, **fields)
 
-
 def delete_job(db: Session, job: Job) -> None:
     job_repo.delete(db, job)
 
-
 def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
-    """Orchestrates the full AI enrichment flow so API handlers can stay thin."""
     job = job_repo.get(db, job_id)
     if not job:
         return None
@@ -77,6 +76,8 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
     db.commit()
 
     try:
+        logger.info("Analyze job '%s' [%s]", job.title, job.id)
+
         analysis_json, model_name, version = analyze_job_text(
             title=job.title,
             description=job.job_description,
@@ -86,19 +87,43 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         job.analysis_model = model_name
         job.analysis_version = version
 
-        combined_text = " ".join(filter(None, [job.title, job.job_description, job.free_text]))
+        summary = (analysis_json.get("summary") or "").strip()
+        normalized = normalize_text_for_fts(job.title, summary, job.job_description, job.free_text or "")
+        job.normalized_text = normalized
+        job.tokens = approx_token_count(normalized)
+
+        combined_text = " ".join([t for t in [job.title, summary, job.job_description, job.free_text] if t])
         embedding = get_openai_embedding(combined_text)
+        try:
+            if len(embedding) != EMBED_DIM:
+                logger.warning("Job-level vector dim mismatch: expected %d got %d", EMBED_DIM, len(embedding))
+        except Exception:
+            logger.exception("Job-level vector dimension check failed")
         job.embedding = embedding
 
-        print(f"[Embedding] Created embedding for job '{job.title}' (length {len(embedding)})")
+        chunk_defs = build_chunks_from_analysis(
+            title=job.title,
+            job_description=job.job_description,
+            free_text=job.free_text,
+            analysis=analysis_json,
+        )
+
+        create_and_embed_chunks(
+            db,
+            job=job,
+            chunk_defs=chunk_defs,
+            embedding_model=settings.OPENAI_EMBEDDING_MODEL,
+            batch_size=64,
+        )
 
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = None
+        logger.info("Job '%s' enrichment completed", job.title)
 
     except Exception as exc:
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = str(exc)
-        print(f"[Embedding] Failed to create embedding for job '{job.title}': {exc}")
+        logger.exception("Failed to enrich job '%s': %s", job.title, exc)
 
     db.add(job)
     db.commit()

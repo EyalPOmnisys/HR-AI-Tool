@@ -1,7 +1,9 @@
 # app/services/common/embedding_client.py
 from __future__ import annotations
 import logging
-from typing import List, Optional
+import time
+import random
+from typing import List, Optional, Sequence
 
 from openai import OpenAI, APIConnectionError, RateLimitError, BadRequestError
 from app.core.config import settings
@@ -28,12 +30,11 @@ def _get_client() -> OpenAI:
 
 class OpenAIEmbeddingClient:
     """
-    Simple embedding client used by the ingestion pipeline.
-    Provides .embed(text) -> List[float]
+    Generic embedding client.
+    Safe to reuse across domains (resumes, jobs, etc.).
     """
 
     def __init__(self, model: Optional[str] = None):
-        # Prefer explicit OpenAI embedding model from settings
         self.model = model or settings.OPENAI_EMBEDDING_MODEL
 
     def embed(self, text: str, timeout: int = 60) -> List[float]:
@@ -52,6 +53,56 @@ class OpenAIEmbeddingClient:
         except Exception as e:
             logger.exception("Unexpected error in embed: %s", e)
             raise
+
+    def embed_many(
+        self,
+        texts: Sequence[str],
+        *,
+        timeout: int = 90,
+        batch_size: int = 64,
+        max_retries: int = 3,
+        base_backoff_sec: float = 1.0,
+    ) -> List[List[float]]:
+        """
+        Generate embeddings for a list of texts using batched requests.
+        This function is domain-agnostic and can be used anywhere in the app.
+        """
+        if not texts:
+            return []
+
+        client = _get_client()
+        vectors: List[List[float]] = []
+
+        # Simple chunking over input
+        def _chunks(seq: Sequence[str], size: int):
+            for i in range(0, len(seq), size):
+                yield seq[i : i + size]
+
+        for batch in _chunks(texts, max(1, batch_size)):
+            attempt = 0
+            while True:
+                try:
+                    resp = client.embeddings.create(model=self.model, input=list(batch), timeout=timeout)
+                    batch_vecs = [d.embedding for d in resp.data]
+                    vectors.extend(batch_vecs)
+                    logger.debug("Embedded batch of %d items (dim=%d)", len(batch_vecs), len(batch_vecs[0]) if batch_vecs else -1)
+                    break
+                except (APIConnectionError, RateLimitError) as e:
+                    attempt += 1
+                    if attempt > max_retries:
+                        logger.exception("OpenAI embed_many failed after retries: %s", e)
+                        raise
+                    sleep_for = base_backoff_sec * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+                    logger.warning("embed_many transient error: %s; retrying in %.2fs (attempt %d/%d)", str(e), sleep_for, attempt, max_retries)
+                    time.sleep(sleep_for)
+                except BadRequestError as e:
+                    # Usually won't recover (e.g., input too long); log and re-raise.
+                    logger.exception("embed_many bad request: %s", e)
+                    raise
+                except Exception as e:
+                    logger.exception("Unexpected error in embed_many: %s", e)
+                    raise
+        return vectors
 
 
 # Export the default instance to match existing imports
