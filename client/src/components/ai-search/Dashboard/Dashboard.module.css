@@ -47,6 +47,8 @@
   background: #f0f9ff;
   border-radius: 12px;
   overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  scroll-behavior: smooth;
 }
 
 .candidateTable thead {
@@ -67,11 +69,14 @@
 
 .candidateTable tbody tr {
   border-bottom: 1px solid #f3f4f6;
-  transition: background-color 0.15s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: center;
+  will-change: background-color, height;
 }
 
 .candidateTable tbody tr:hover {
   background-color: #dbeafe;
+  transition: background-color 0.2s ease;
 }
 
 .candidateTable tbody tr.expandedRow {
@@ -84,6 +89,7 @@
   color: #1f2937;
   border: 1px solid #f0f0f0;
   text-align: center;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .nameCell {
@@ -97,14 +103,159 @@
 }
 
 .aiInsightCell {
-  max-width: 250px;
+  max-width: 180px;
+  min-width: 180px;
   font-size: 13px;
+  vertical-align: top;
+  padding: 8px;
+  text-align: center;
+  overflow: visible;
+  position: relative;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: max-width, min-width;
+}
+
+.aiInsightCell.expanded {
+  max-width: 450px;
+  min-width: 320px;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aiInsightWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .aiInsight {
-  line-height: 1.5;
-  color: #374151;
+  line-height: 1.7;
+  color: #4b5563;
   padding: 4px 0;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.aiInsight strong {
+  color: #1f2937;
+  font-weight: 600;
+  display: block;
+  margin-top: 6px;
+}
+
+/* Styling for bullet points */
+.aiInsight::first-line {
+  margin-top: 0;
+}
+
+/* Subtle background color for strengths */
+.strengthsInsight {
+  background-color: #f0fdf4;
+  border-left: 3px solid #10b981;
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 8px;
+  text-align: left;
+  min-width: 280px;
+  max-width: 400px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  animation: expandContent 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top center;
+  will-change: transform, opacity;
+  transition: box-shadow 0.2s ease;
+}
+
+.strengthsInsight:hover {
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+}
+
+/* Subtle background color for concerns */
+.concernsInsight {
+  background-color: #fef3f2;
+  border-left: 3px solid #f59e0b;
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 8px;
+  text-align: left;
+  min-width: 280px;
+  max-width: 400px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  animation: expandContent 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: top center;
+  will-change: transform, opacity;
+  transition: box-shadow 0.2s ease;
+}
+
+.concernsInsight:hover {
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
+}
+
+@keyframes expandContent {
+  0% {
+    opacity: 0;
+    transform: translateY(-15px) scale(0.95);
+  }
+  60% {
+    opacity: 0.8;
+    transform: translateY(-5px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Expand/Collapse button for AI insights */
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.expandButton svg {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.expandButton:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1f2937;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+.expandButton:hover svg {
+  transform: scale(1.2);
+}
+
+.expandButton:active {
+  transform: translateY(0);
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .recommendationCell {

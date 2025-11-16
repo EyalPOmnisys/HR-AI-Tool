@@ -15,6 +15,10 @@ from sqlalchemy import select
 
 from app.models import Job, Resume, ResumeChunk
 from app.core.config import settings
+from app.services.common.llm_client import load_prompt
+
+# Load evaluation prompt from centralized location
+CANDIDATE_EVALUATION_PROMPT = load_prompt("match/candidate_evaluation.prompt.txt")
 
 client = AsyncOpenAI()
 logger = logging.getLogger("match.llm_judge")
@@ -252,10 +256,8 @@ class LLMJudge:
         """Call LLM to evaluate candidates."""
         logger.info("Calling OpenAI API for deep evaluation...")
         
-        # Load prompt from file
-        from pathlib import Path
-        prompt_path = Path(__file__).parent.parent.parent / "prompts" / "match" / "candidate_evaluation.prompt.txt"
-        system_prompt = prompt_path.read_text(encoding="utf-8")
+        # Use centralized prompt
+        system_prompt = CANDIDATE_EVALUATION_PROMPT
 
         # Build user prompt
         user_prompt = {

@@ -20,10 +20,68 @@ function getScoreColor(score: number): string {
   return '#ef4444' // red
 }
 
+// Helper: Count number of bullet points in text
+function countBullets(text: string | undefined | null): number {
+  if (!text) return 0
+  return text.split('•').filter(line => line.trim()).length
+}
+
+// Helper: Check if concerns text indicates no concerns
+function hasNoConcerns(text: string | undefined | null): boolean {
+  if (!text) return true
+  const lower = text.toLowerCase().trim()
+  return (
+    lower === 'no significant concerns identified.' ||
+    lower === 'no significant concerns identified' ||
+    lower === 'no concerns' ||
+    lower === 'none' ||
+    lower.startsWith('no significant concerns')
+  )
+}
+
+// Helper: Format AI insights with proper line breaks and structure
+function formatAIInsight(text: string | undefined | null): React.ReactNode {
+  if (!text) return ''
+  
+  // Split by bullet points and format each line
+  const lines = text
+    .split('•')
+    .filter(line => line.trim())
+    .map((line, index) => {
+      const trimmed = line.trim()
+      
+      // Check if line starts with a category (ends with colon)
+      const colonIndex = trimmed.indexOf(':')
+      if (colonIndex > 0 && colonIndex < 40) {
+        const category = trimmed.substring(0, colonIndex + 1)
+        const content = trimmed.substring(colonIndex + 1).trim()
+        
+        return (
+          <div key={index} style={{ marginBottom: '8px' }}>
+            <span style={{ fontWeight: 600, color: '#1f2937' }}>• {category}</span>
+            <span style={{ marginLeft: '4px' }}>{content}</span>
+          </div>
+        )
+      }
+      
+      // No category, just format as regular bullet
+      return (
+        <div key={index} style={{ marginBottom: '8px' }}>
+          • {trimmed}
+        </div>
+      )
+    })
+  
+  return <>{lines}</>
+}
+
 
 export default function Dashboard({ matchResults, selectedJob }: Props) {
   const candidates = matchResults.candidates;
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
+  const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
+  const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
+  
   const avgScore =
     candidates.length > 0
       ? Math.round(candidates.reduce((sum, c) => sum + c.match, 0) / candidates.length)
@@ -31,6 +89,30 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
 
   const toggleResume = (resumeId: string) => {
     setExpandedResumeId(expandedResumeId === resumeId ? null : resumeId);
+  };
+
+  const toggleStrengths = (resumeId: string) => {
+    setExpandedStrengths(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(resumeId)) {
+        newSet.delete(resumeId);
+      } else {
+        newSet.add(resumeId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleConcerns = (resumeId: string) => {
+    setExpandedConcerns(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(resumeId)) {
+        newSet.delete(resumeId);
+      } else {
+        newSet.add(resumeId);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -83,22 +165,64 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                       </span>
                     </td>
                     <td>{candidate.experience || '—'}</td>
-                    <td className={styles.aiInsightCell}>
+                    <td className={`${styles.aiInsightCell} ${expandedStrengths.has(candidate.resume_id) ? styles.expanded : ''}`}>
                       {candidate.llm_strengths ? (
-                        <div className={styles.aiInsight}>
-                          {candidate.llm_strengths}
+                        <div className={styles.aiInsightWrapper}>
+                          <button
+                            onClick={() => toggleStrengths(candidate.resume_id)}
+                            className={styles.expandButton}
+                          >
+                            {expandedStrengths.has(candidate.resume_id) ? (
+                              <>
+                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
+                                Hide
+                              </>
+                            ) : (
+                              <>
+                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
+                                Show ({countBullets(candidate.llm_strengths)})
+                              </>
+                            )}
+                          </button>
+                          {expandedStrengths.has(candidate.resume_id) && (
+                            <div className={`${styles.aiInsight} ${styles.strengthsInsight}`}>
+                              {formatAIInsight(candidate.llm_strengths)}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span style={{ color: '#999' }}>—</span>
                       )}
                     </td>
-                    <td className={styles.aiInsightCell}>
-                      {candidate.llm_concerns ? (
-                        <div className={styles.aiInsight}>
-                          {candidate.llm_concerns}
+                    <td className={`${styles.aiInsightCell} ${expandedConcerns.has(candidate.resume_id) ? styles.expanded : ''}`}>
+                      {candidate.llm_concerns && !hasNoConcerns(candidate.llm_concerns) ? (
+                        <div className={styles.aiInsightWrapper}>
+                          <button
+                            onClick={() => toggleConcerns(candidate.resume_id)}
+                            className={styles.expandButton}
+                          >
+                            {expandedConcerns.has(candidate.resume_id) ? (
+                              <>
+                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
+                                Hide
+                              </>
+                            ) : (
+                              <>
+                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
+                                Show ({countBullets(candidate.llm_concerns)})
+                              </>
+                            )}
+                          </button>
+                          {expandedConcerns.has(candidate.resume_id) && (
+                            <div className={`${styles.aiInsight} ${styles.concernsInsight}`}>
+                              {formatAIInsight(candidate.llm_concerns)}
+                            </div>
+                          )}
                         </div>
                       ) : (
-                        <span style={{ color: '#999' }}>None</span>
+                        <div style={{ color: '#10b981', fontStyle: 'italic', padding: '8px' }}>
+                          ✓ No significant concerns
+                        </div>
                       )}
                     </td>
                     <td className={styles.recommendationCell}>

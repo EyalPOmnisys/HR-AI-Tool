@@ -132,6 +132,7 @@ class MatchService:
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
                 "rag_score": candidate["rag_score"],
+                "rag_breakdown": candidate.get("breakdown", {}),  # Add weighted breakdown
                 "llm_score": candidate.get("llm_score", 0),
                 "llm_verdict": candidate.get("llm_verdict", "not_evaluated"),
                 "llm_strengths": candidate.get("llm_strengths", ""),
