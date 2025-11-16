@@ -24,6 +24,7 @@ class TechStack(BaseModel):
     languages: List[str] = Field(default_factory=list)
     frameworks: List[str] = Field(default_factory=list)
     databases: List[str] = Field(default_factory=list)
+    domains: List[str] = Field(default_factory=list)  # Specialized domains (cybersecurity, embedded, etc.)
 
 
 class Skills(BaseModel):

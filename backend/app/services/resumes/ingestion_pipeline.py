@@ -1,4 +1,8 @@
 # app/services/resumes/ingestion_pipeline.py
+"""
+Resume Ingestion Pipeline - End-to-end processing from file upload to searchable resume.
+Handles parsing, extraction, chunking, embedding, and API response formatting for resume data.
+"""
 # -----------------------------------------------------------------------------
 # CHANGELOG (English-only comments)
 # - get_resume_detail(): expose years_by_category (from extraction_json.experience_meta.totals_by_category)

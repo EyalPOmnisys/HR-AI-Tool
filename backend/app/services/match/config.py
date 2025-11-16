@@ -1,5 +1,7 @@
+# app/services/match/config.py
 """
-Match configuration - simplified for new clean architecture.
+Match Configuration - Defines scoring thresholds and weights for the matching algorithm.
+Controls RAG/LLM balance and similarity thresholds for candidate matching.
 """
 from dataclasses import dataclass
 

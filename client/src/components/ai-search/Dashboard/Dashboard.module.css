@@ -74,6 +74,11 @@
   background-color: #dbeafe;
 }
 
+.candidateTable tbody tr.expandedRow {
+  background-color: #dbeafe;
+  border-bottom: none;
+}
+
 .candidateTable td {
   padding: 16px 12px;
   color: #1f2937;
@@ -81,9 +86,8 @@
 }
 
 .nameCell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  font-weight: 600;
+  color: #111827;
 }
 
 .candidateName {
@@ -125,6 +129,75 @@
 .resumeLink:hover {
   color: #1d4ed8;
   text-decoration: underline;
+}
+
+.resumeButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+.resumeButton:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+}
+
+.resumeButton:active {
+  transform: translateY(0);
+}
+
+.resumeRow {
+  border-bottom: 1px solid #f3f4f6;
+  animation: slideDown 0.4s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.resumeCell {
+  padding: 0 !important;
+  background: #f8fafc;
+}
+
+.resumeContainer {
+  padding: 24px;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.resumeIframe {
+  width: 100%;
+  height: 800px;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 .contactLink {

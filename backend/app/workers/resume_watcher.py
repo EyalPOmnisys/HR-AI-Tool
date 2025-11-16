@@ -1,3 +1,8 @@
+# app/workers/resume_watcher.py
+"""
+Resume File Watcher - Monitors resume directory and automatically processes new uploads.
+Uses file system events to detect and ingest new resume files with debouncing to avoid duplicates.
+"""
 # Purpose: Watch backend/data/resumes/ and auto-ingest new files.
 from __future__ import annotations
 

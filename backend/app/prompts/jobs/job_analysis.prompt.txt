@@ -73,19 +73,42 @@ Schema:
 - Ignore product names or departments (e.g., “Google Cloud” ≠ organization unless stated as hiring entity).
 
 **Tech Stack**
-- Classify technical mentions precisely:
-  - `languages`: programming languages (Python, Java, C++)  
-  - `frameworks`: frameworks (React, Angular, Django, Spring)  
-  - `databases`: databases (MySQL, MongoDB, PostgreSQL)  
-  - `cloud`: cloud services (AWS, Azure, GCP)  
-  - `tools`: platforms, QA or DevOps tools (Jira, Jenkins, Docker, TestRail)  
-  - `business`: only sales/marketing/CRM/B2B/negotiation-related tools or concepts.  
-- CI/CD, Agile, Scrum → *not business* (put under frameworks/tools if relevant).
+- Classify technical mentions precisely and include ONLY technologies explicitly mentioned in the job text:
+  - `languages`: programming languages only (Python, Java, C++, TypeScript, JavaScript, C, R, etc.)
+  - `frameworks`: frameworks and major libraries (React, Angular, Django, Spring, Next.js, Redux, etc.)
+  - `databases`: databases only (MySQL, MongoDB, PostgreSQL, Redis, etc.)
+  - `cloud`: cloud platforms only (AWS, Azure, GCP)
+  - `tools`: development tools, DevOps, version control, CI/CD, testing tools (Git, Docker, Jenkins, Jira, Postman, Selenium, Cypress, Appium, TestRail, etc.)
+  - `business`: ONLY sales/marketing/CRM tools and business-focused concepts (Salesforce, HubSpot, CRM, B2B, negotiation, lead generation)
+  - `management`: project and team management methodologies (Agile, Scrum, Kanban, DevOps practices)
+  - `domains`: specialized technical domains explicitly mentioned (cybersecurity, embedded systems, network security, IoT, SCADA, defense systems, weapon systems, firmware, hardware, FPGA, microcontroller, real-time systems, RTOS, penetration testing, cryptography, etc.)
+- IMPORTANT: 
+  - Extract ONLY the technology names (e.g., "Selenium", "Jira"), NOT descriptions (e.g., "experience with Selenium")
+  - From "e.g., Selenium, Cypress, Appium" → extract: "Selenium", "Cypress", "Appium" separately
+  - From "such as Jira, TestRail" → extract: "Jira", "TestRail" separately
+  - Do NOT add technologies that are not explicitly mentioned in the text
+- If a technology appears in the text, ensure it's classified in the correct category
+- CI/CD, Agile, Scrum → management (NOT business)
+- GraphQL, REST APIs → tools
+- Testing frameworks (Jest, Cypress, Playwright) → tools
+- Testing tools (Selenium, Appium, TestRail) → tools
+- Communication protocols (CAN Bus, I2C, SPI, TCP/IP, UART) → tools
+- Security tools (Wireshark, Metasploit, IDA Pro, Kali Linux, Splunk) → tools
+- Domain-specific concepts (cybersecurity, embedded systems, IoT, SCADA, weapon systems, FPGA) → domains
 
 **Skills**
-- `must_have`: mandatory or “required” items only.  
-- `nice_to_have`: explicitly labeled “advantage” or “preferred”.  
-- Never infer skills from responsibilities.
+- `must_have`: Extract ONLY the most critical, concrete technical skills/technologies that are explicitly marked as "mandatory" or "required". Be selective - include only:
+  - Specific technologies/tools explicitly required (e.g., "Selenium - mandatory", "Jira - required")
+  - Core programming languages if explicitly required
+  - Critical certifications or specific years of experience with a technology
+  - DO NOT include: experience descriptions (e.g., "Experience testing web-based systems"), role types, soft skills, or "advantage" items
+  - EXTRACT ONLY TECHNOLOGY NAMES, not descriptions
+  - KEEP THIS LIST SHORT (2-5 items max) - only truly mandatory specific technologies
+- `nice_to_have`: Items labeled "advantage", "preferred", "nice to have", "bonus", "plus".
+  - You MAY include the full descriptions here (e.g., "Proficiency with test management tools such as Jira, TestRail")
+  - These will be parsed to extract specific technologies later
+- IMPORTANT: Be very conservative with must_have - when in doubt, put it in nice_to_have
+- Never infer skills from responsibilities - only extract from requirements/qualifications sections.
 
 **Evidence**
 - Must be a list of **direct quotes or short paraphrases** from the text supporting extracted fields.  

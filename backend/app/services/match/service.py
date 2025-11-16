@@ -1,6 +1,7 @@
+# app/services/match/service.py
 """
-Match service - Orchestrates the matching process.
-Simple flow: RAG matching → Select top N → LLM deep evaluation
+Match Service - Main orchestrator for the job-to-resume matching pipeline.
+Coordinates RAG vector search and LLM deep evaluation to rank and return top candidates.
 """
 from __future__ import annotations
 import logging

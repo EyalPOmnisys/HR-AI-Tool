@@ -1,5 +1,8 @@
 # app/services/resumes/validation.py
-"""Validation and quality checks for extracted resume data and embeddings."""
+"""
+Resume Validation Service - Quality checks and validation for extracted resume data.
+Validates completeness, consistency, and quality of extraction results and embeddings.
+"""
 from __future__ import annotations
 
 from datetime import datetime

@@ -1,4 +1,8 @@
 # app/services/jobs/embedding_pipeline.py
+"""
+Job Embedding Pipeline - Orchestrates the creation and storage of vector embeddings for job chunks.
+Manages chunk lifecycle: deletion of old chunks, insertion of new ones, batch embedding generation, and storage.
+"""
 from __future__ import annotations
 import logging
 from typing import List, Dict, Any

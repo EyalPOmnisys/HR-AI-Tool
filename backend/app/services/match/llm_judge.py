@@ -1,6 +1,7 @@
+# app/services/match/llm_judge.py
 """
-LLM-based deep analysis of top candidates.
-Loads full resumes and performs comprehensive evaluation.
+LLM Judge - Performs deep AI-powered evaluation of top candidates.
+Loads full resumes, analyzes fit against job requirements, and provides detailed scoring and recommendations.
 """
 from __future__ import annotations
 import logging

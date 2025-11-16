@@ -1,6 +1,7 @@
+# app/services/match/match_rag.py
 """
-RAG-based matching between job and resumes.
-Pure vector similarity search and scoring.
+RAG Matcher - Vector-based similarity search between jobs and resumes.
+Uses embedding cosine similarity to find and score the most relevant candidates.
 """
 from __future__ import annotations
 import logging

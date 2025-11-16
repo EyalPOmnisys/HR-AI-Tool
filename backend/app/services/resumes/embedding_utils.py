@@ -1,5 +1,8 @@
 # app/services/resumes/embedding_utils.py
-"""Enhanced embedding utilities for resume chunks with context enrichment."""
+"""
+Resume Embedding Utilities - Context enrichment for better semantic search.
+Enhances resume chunks with metadata and creates optimized embeddings for candidate matching.
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional

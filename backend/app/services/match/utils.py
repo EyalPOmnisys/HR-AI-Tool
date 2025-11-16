@@ -1,6 +1,7 @@
+# app/services/match/utils.py
 """
-Utility functions for matching.
-Simplified - most logic moved to specialized modules.
+Match Utilities - Helper functions for formatting and displaying match results.
+Currently provides experience years formatting for API responses.
 """
 
 def format_experience_years(years: float | None) -> str | None:

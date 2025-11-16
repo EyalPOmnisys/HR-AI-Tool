@@ -1,3 +1,8 @@
+# app/services/jobs/chunker.py
+"""
+Job Chunking Service - Breaks down analyzed job data into smaller, searchable text chunks.
+Creates section-based chunks (summary, requirements, responsibilities, tech stack) for embedding and search.
+"""
 from __future__ import annotations
 import logging
 from typing import Dict, Any, List, Optional
@@ -50,15 +55,38 @@ def build_chunks_from_analysis(
         out.append({"section": "requirement", "ord": cursor, "text": line, "lang": None})
         cursor += 1
 
+    # Add must-have skills as a separate chunk for better matching
+    # Only include concrete tech terms, not descriptions
+    skills = analysis.get("skills") or {}
+    must_have = _safe_lines(skills.get("must_have"))
+    if must_have:
+        # Filter out long descriptions and keep only tech terms
+        concrete_skills = [
+            s for s in must_have 
+            if len(s.split()) <= 4 and not any(
+                word in s.lower() for word in [
+                    "experience", "years", "background", "proficiency", "familiarity"
+                ]
+            )
+        ]
+        if concrete_skills:
+            out.append({
+                "section": "required_skills", 
+                "ord": cursor, 
+                "text": "Required skills: " + ", ".join(concrete_skills), 
+                "lang": None
+            })
+            cursor += 1
+
+    # Split tech_stack into separate chunks per category for better embeddings
     tech_stack = analysis.get("tech_stack") or {}
-    tech_parts: List[str] = []
-    for key in ("languages", "frameworks", "databases", "cloud", "tools", "business", "management"):
+    for key in ("languages", "frameworks", "databases", "cloud", "tools", "business", "management", "domains"):
         vals = _safe_lines(tech_stack.get(key))
         if vals:
-            tech_parts.append(f"{key}: " + ", ".join(vals))
-    if tech_parts:
-        out.append({"section": "tech_stack", "ord": cursor, "text": " | ".join(tech_parts), "lang": None})
-        cursor += 1
+            # Create a separate chunk for each tech category
+            tech_text = f"{key.title()}: " + ", ".join(vals)
+            out.append({"section": f"tech_{key}", "ord": cursor, "text": tech_text, "lang": None})
+            cursor += 1
 
     if not out:
         for chunk in _basic_fallback_chunks(job_description):
