@@ -68,21 +68,36 @@ def _lc(s: Optional[str]) -> Optional[str]:
 
 def _parse_date(raw: Any) -> Optional[datetime]:
     """
-    Parse multiple loose formats including:
-    - YYYY, YYYY-MM, YYYY-MM-DD, MM/YYYY, YYYY/MM
-    - Month-name formats: 'Jan 2020', 'January 2020', 'Jan 3, 2024', 'January 3, 2024'
-    - Also tolerates single hyphenated ranges like '2020-2022' by taking the first segment.
-    - 'present/current/now' map to current UTC.
+    Parse multiple loose formats including English and Hebrew month names.
+    Accepts: YYYY, YYYY-MM, YYYY-MM-DD, MM/YYYY, YYYY/MM, 'Jan 2020', 'ינואר 2020'.
+    Maps 'present/current/now/כיום/נוכחי/הווה' to current UTC.
     """
     if raw is None:
         return None
     try:
         val = str(raw).strip().lower().replace("–", "-").replace("—", "-")
-        if val in {"present", "current", "now"}:
+        if val in {"present", "current", "now", "כיום", "נוכחי", "הווה"}:
             return datetime.utcnow()
         # Handle compact year range mistakenly sent as a single value
         if "-" in val and val.count("-") == 1 and len(val) == 9 and val[:4].isdigit() and val[-4:].isdigit():
             val = val.split("-")[0]
+
+        # Hebrew month parsing
+        heb_months = {
+            "ינואר": 1, "פברואר": 2, "מרץ": 3, "אפריל": 4, "מאי": 5, "יוני": 6,
+            "יולי": 7, "אוגוסט": 8, "ספטמבר": 9, "אוקטובר": 10, "נובמבר": 11, "דצמבר": 12,
+        }
+        m = re.match(rf"^\s*({'|'.join(heb_months.keys())})\s+(20\d{{2}}|19\d{{2}})\s*$", val)
+        if m:
+            month = heb_months.get(m.group(1), 1)
+            year = int(m.group(2))
+            return datetime(year, month, 1)
+        m = re.match(rf"^\s*(\d{{1,2}})\s+({'|'.join(heb_months.keys())})\s+(20\d{{2}}|19\d{{2}})\s*$", val)
+        if m:
+            day = int(m.group(1))
+            month = heb_months.get(m.group(2), 1)
+            year = int(m.group(3))
+            return datetime(year, month, min(day, 28))
 
         # Try an ordered list of formats (most specific first)
         fmts = (

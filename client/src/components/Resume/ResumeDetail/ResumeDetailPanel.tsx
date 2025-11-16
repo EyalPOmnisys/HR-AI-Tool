@@ -43,9 +43,19 @@ export const ResumeDetailPanel = ({
     if (!resume?.resumeUrl) return '';
     const stamp = resume.updatedAt ?? String(Date.now());
     const sep = resume.resumeUrl.includes('?') ? '&' : '?';
-    const hash = '#page=1&zoom=page-fit';
-    return `${resume.resumeUrl}${sep}t=${encodeURIComponent(stamp)}${hash}`;
-  }, [resume?.resumeUrl, resume?.updatedAt]);
+    
+    // For PDF files, add PDF-specific viewer parameters
+    const isPdf = resume.mimeType?.toLowerCase().includes('pdf') || 
+                  resume.fileName?.toLowerCase().endsWith('.pdf');
+    
+    if (isPdf) {
+      const hash = '#page=1&zoom=page-fit';
+      return `${resume.resumeUrl}${sep}t=${encodeURIComponent(stamp)}${hash}`;
+    }
+    
+    // For DOCX/TXT (now returned as HTML), just add cache buster
+    return `${resume.resumeUrl}${sep}t=${encodeURIComponent(stamp)}`;
+  }, [resume?.resumeUrl, resume?.updatedAt, resume?.mimeType, resume?.fileName]);
 
   const contactItems = useMemo(
     () => (resume?.contacts ?? []).filter((c) => c.type === 'email' || c.type === 'phone'),

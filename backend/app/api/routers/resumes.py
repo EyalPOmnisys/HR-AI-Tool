@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse  
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse  
 from sqlalchemy.orm import Session
 
 from app.db.base import get_db
@@ -35,6 +36,12 @@ def get_resume(resume_id: UUID, db: Session = Depends(get_db)):
 
 @router.get("/{resume_id}/file")
 def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
+    """
+    Return resume file for preview:
+    - PDF: stream the original file
+    - DOCX: convert to HTML with RTL support for Hebrew
+    - TXT: return as HTML with proper formatting
+    """
     resume = resume_service.get_resume(db, resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -43,9 +50,100 @@ def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Resume file missing")
 
-    mime = (resume.mime_type or "").lower() or "application/pdf"
+    mime = (resume.mime_type or "").lower()
+    suffix = path.suffix.lower()
+    
+    # For PDF files, stream the original
+    if suffix == ".pdf" or "pdf" in mime:
+        f = open(path, "rb")
+        headers = {
+            "Content-Disposition": f'inline; filename="{path.name}"',
+        }
+        return StreamingResponse(f, media_type="application/pdf", headers=headers)
+    
+    # For DOCX and TXT, convert to HTML
+    if suffix in [".docx", ".txt"]:
+        html_content = _convert_to_html(path, resume.parsed_text or "")
+        return HTMLResponse(content=html_content)
+    
+    # Fallback: try to stream as-is
     f = open(path, "rb")
     headers = {
         "Content-Disposition": f'inline; filename="{path.name}"',
     }
-    return StreamingResponse(f, media_type=mime, headers=headers)
+    return StreamingResponse(f, media_type=mime or "application/octet-stream", headers=headers)
+
+
+def _convert_to_html(file_path: Path, parsed_text: str) -> str:
+    """
+    Convert DOCX or TXT file to HTML for browser display.
+    Uses parsed_text (already RTL-fixed) and formats it nicely.
+    """
+    from html import escape
+    
+    # If we have parsed text, use it (it's already RTL-fixed)
+    if parsed_text:
+        text = parsed_text
+    else:
+        # Fallback: read and parse the file
+        from app.services.resumes.parsing_utils import parse_to_text
+        text = parse_to_text(file_path)
+    
+    # Escape HTML and preserve line breaks
+    safe_text = escape(text)
+    
+    # Detect if text contains Hebrew
+    has_hebrew = any('\u0590' <= char <= '\u05FF' for char in text)
+    direction = "rtl" if has_hebrew else "ltr"
+    text_align = "right" if has_hebrew else "left"
+    
+    html = f"""
+<!DOCTYPE html>
+<html lang="he" dir="{direction}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Preview</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans Hebrew', sans-serif;
+            line-height: 1.7;
+            padding: 2.5rem;
+            max-width: 850px;
+            margin: 0 auto;
+            background: #ffffff;
+            color: #1e293b;
+            direction: {direction};
+            text-align: {text_align};
+            font-size: 15px;
+        }}
+        .content {{
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-feature-settings: "liga" 1, "calt" 1;
+        }}
+        @media print {{
+            body {{
+                padding: 1.5rem;
+                font-size: 13px;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            body {{
+                padding: 1.5rem;
+                font-size: 14px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="content">{safe_text}</div>
+</body>
+</html>
+    """
+    return html

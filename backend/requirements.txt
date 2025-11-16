@@ -10,6 +10,8 @@ alembic>=1.13
 pgvector
 pdfplumber
 python-docx
+unstructured[docx]>=0.10.0
+python-magic>=0.4.27
 watchdog
 openai>=1.46.0
 asyncpg
