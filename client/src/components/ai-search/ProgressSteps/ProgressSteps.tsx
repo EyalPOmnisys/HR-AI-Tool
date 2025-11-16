@@ -19,7 +19,7 @@ export default function ProgressSteps({
   steps,
   activeIndex,
   isLoading = false,
-  loadingDurationMs = 15000,
+  loadingDurationMs = 30000,
 }: Props): ReactElement {
   return (
     <nav className={styles.wrapper} aria-label="Progress">

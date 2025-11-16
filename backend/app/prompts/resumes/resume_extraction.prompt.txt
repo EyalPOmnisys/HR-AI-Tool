@@ -61,6 +61,14 @@ Return ONLY valid JSON matching this exact structure:
 - Exclude: volunteer work, personal projects, academic projects, hackathons
 - Include: internships only if they were formal paid positions
 - Military service: include as experience if it involved professional work (not basic training)
+- **Title Inference:** If job title is NOT explicitly stated but role description is clear:
+  * Analyze the bullets/responsibilities to infer the most appropriate title
+  * Examples:
+    - "Developed AI-powered applications" → "AI Developer" or "Software Developer"
+    - "Led backend team, designed APIs" → "Backend Team Lead" or "Backend Engineer"
+    - "Built React applications for education" → "Frontend Developer" or "Full Stack Developer"
+  * Use common industry titles (Software Engineer, Developer, Data Scientist, DevOps Engineer, etc.)
+  * If truly unclear after analysis, use null (do NOT guess randomly)
 - For "bullets": extract 3-7 key points per role focusing on:
   * Technical achievements
   * Impact/results (metrics if available)

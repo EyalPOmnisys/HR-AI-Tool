@@ -4,6 +4,7 @@
 // Falls back to legacy yearsOfExperience when primaryYears is null.
 // -----------------------------------------------------------------------------
 import { useMemo, type ReactElement } from 'react';
+import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone';
 
 import type { ResumeDetail } from '../../../types/resume';
 import styles from './ResumeDetailPanel.module.css';
@@ -23,6 +24,7 @@ const contactIcon = (type: string): string => {
   if (key === 'phone') return '📞';
   return '🔗';
 };
+
 
 export const ResumeDetailPanel = ({
   resume,
@@ -141,9 +143,15 @@ export const ResumeDetailPanel = ({
                             {contact.value}
                           </a>
                         ) : (
-                          <a href={`tel:${contact.value}`} className={styles.contactLink}>
-                            {contact.value}
-                          </a>
+                          (() => {
+                            const localized = localizeILPhone(contact.value);
+                            const display = formatILPhoneDisplay(contact.value) ?? (localized ?? contact.value);
+                            return (
+                              <a href={`tel:${localized ?? contact.value}`} className={styles.contactLink}>
+                                {display}
+                              </a>
+                            );
+                          })()
                         )}
                       </div>
                     </li>

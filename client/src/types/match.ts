@@ -23,8 +23,12 @@ export type CandidateRow = {
   phone: string | null;
   resume_url: string | null;
   rag_breakdown?: RAGBreakdown;
+  rag_score?: number;
   llm_score?: number;
   llm_verdict?: string;
+  llm_strengths?: string;
+  llm_concerns?: string;
+  llm_recommendation?: string;
 };
 
 export type MatchRunResponse = {

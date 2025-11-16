@@ -57,3 +57,4 @@ class JobAnalysis(BaseModel):
 
     class Config:
         extra = "ignore"
+

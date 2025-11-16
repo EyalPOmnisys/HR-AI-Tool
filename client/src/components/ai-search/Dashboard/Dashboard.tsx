@@ -3,6 +3,7 @@ import styles from './Dashboard.module.css'
 import type { MatchRunResponse } from '../../../types/match'
 import type { ApiJob } from '../../../types/job'
 import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp } from 'react-icons/fi'
+import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
 
 type Props = {
   matchResults: MatchRunResponse
@@ -18,6 +19,7 @@ function getScoreColor(score: number): string {
   if (score >= 65) return '#f59e0b' // amber
   return '#ef4444' // red
 }
+
 
 export default function Dashboard({ matchResults, selectedJob }: Props) {
   const candidates = matchResults.candidates;
@@ -53,6 +55,9 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                 <th>🎯 Match</th>
                 <th>👤 Candidate</th>
                 <th>📅 Experience</th>
+                <th>💪 Strengths</th>
+                <th>⚠️ Concerns</th>
+                <th>📝 Recommendation</th>
                 <th>✉️ Email</th>
                 <th>📞 Phone</th>
                 <th>📄 Resume</th>
@@ -68,16 +73,8 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                           className={styles.scoreBadge}
                           style={{ backgroundColor: getScoreColor(candidate.match) }}
                         >
-                          {candidate.match}%
+                          {candidate.match}
                         </div>
-                        {candidate.llm_verdict && (
-                          <span style={{ fontSize: '0.7rem', color: '#666', marginLeft: '8px' }}>
-                            {candidate.llm_verdict === 'strong_fit' && '💪'}
-                            {candidate.llm_verdict === 'partial_fit' && '🤔'}
-                            {candidate.llm_verdict === 'weak_fit' && '⚠️'}
-                            {candidate.llm_verdict === 'no_fit' && '❌'}
-                          </span>
-                        )}
                       </div>
                     </td>
                     <td className={styles.nameCell}>
@@ -86,6 +83,37 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                       </span>
                     </td>
                     <td>{candidate.experience || '—'}</td>
+                    <td className={styles.aiInsightCell}>
+                      {candidate.llm_strengths ? (
+                        <div className={styles.aiInsight}>
+                          {candidate.llm_strengths}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#999' }}>—</span>
+                      )}
+                    </td>
+                    <td className={styles.aiInsightCell}>
+                      {candidate.llm_concerns ? (
+                        <div className={styles.aiInsight}>
+                          {candidate.llm_concerns}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#999' }}>None</span>
+                      )}
+                    </td>
+                    <td className={styles.recommendationCell}>
+                      {candidate.llm_recommendation ? (
+                        <span className={`${styles.recommendationBadge} ${styles[candidate.llm_recommendation]}`}>
+                          {candidate.llm_recommendation === 'hire_immediately' && '🚀 Hire Immediately'}
+                          {candidate.llm_recommendation === 'strong_interview' && '💼 Strong Interview'}
+                          {candidate.llm_recommendation === 'interview' && '📞 Interview'}
+                          {candidate.llm_recommendation === 'maybe' && '🤔 Maybe'}
+                          {candidate.llm_recommendation === 'pass' && '❌ Pass'}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#999' }}>—</span>
+                      )}
+                    </td>
                     <td>
                       {candidate.email ? (
                         <a href={`mailto:${candidate.email}`} className={styles.contactLink}>
@@ -97,9 +125,15 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                     </td>
                     <td>
                       {candidate.phone ? (
-                        <a href={`tel:${candidate.phone}`} className={styles.contactLink}>
-                          {candidate.phone}
-                        </a>
+                        (() => {
+                          const localized = localizeILPhone(candidate.phone);
+                          const display = formatILPhoneDisplay(candidate.phone) ?? (localized ?? candidate.phone);
+                          return (
+                            <a href={`tel:${localized ?? candidate.phone}`} className={styles.contactLink}>
+                              {display}
+                            </a>
+                          );
+                        })()
                       ) : (
                         <span style={{ color: '#999' }}>—</span>
                       )}
@@ -129,7 +163,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={6} className={styles.resumeCell}>
+                      <td colSpan={9} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <iframe
                             src={`${API_URL}${candidate.resume_url}`}

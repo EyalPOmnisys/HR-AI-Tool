@@ -16,6 +16,10 @@ logger = logging.getLogger("jobs.normalizer")
 # Return lowercase canonical names for technologies/tools/frameworks etc.
 # (We prefer lowercase for searchability and schema consistency.)
 _ALIAS_TO_CANON = {
+    # Business/domain aliases
+    "defence": "defense",
+    "go to market": "go-to-market",
+    "gtm": "go-to-market",
     "ts": "typescript",
     "typescript": "typescript",
     "javascript": "javascript",
@@ -134,7 +138,9 @@ _BUCKETS = {
         "firewalls", "ids", "ips", "siem", "soar", "dlp"
     },
     "business": {
-        "crm", "salesforce", "hubspot", "b2b", "b2c", "marketing", "negotiation", "lead generation", 
+        "crm", "salesforce", "hubspot", "b2b", "b2c", "b2g", "g2g",
+        "marketing", "negotiation", "lead generation", "go-to-market", "gtm",
+        "tenders", "rfp", "rfq", "contracting", "pricing", "channels", "partnerships",
         "account management", "pipeline", "forecast", "customer success"
     },
     "management": {
@@ -145,7 +151,7 @@ _BUCKETS = {
         "cybersecurity", "embedded systems", "embedded", "network security", "network protection",
         "communication protocols", "can bus", "i2c", "spi", "uart", "tcp/ip", "udp", "modbus",
         "scada", "iot", "rtos", "freertos", "real-time", "firmware", "hardware",
-        "weapon systems", "defense systems", "military", "aerospace"
+        "weapon systems", "defense systems", "defense", "military", "aerospace"
     }
 }
 
@@ -222,7 +228,7 @@ def _push_unique(bucket: List[str], value: str) -> None:
 
 
 def _ensure_tech_keys(tech: Dict[str, Any]) -> None:
-    for k in ("languages", "frameworks", "databases", "cloud", "tools", "business", "management"):
+    for k in ("languages", "frameworks", "databases", "cloud", "tools", "business", "management", "domains"):
         tech.setdefault(k, [])
 
 
@@ -235,10 +241,15 @@ def _present_in_text(term: str, text_blob: str) -> bool:
     t = _canon(term)
     if not t:
         return False
-    
-    # Direct match
-    if t in text_blob:
-        return True
+
+    # Prefer word-boundary match for single-token alnum terms to avoid substrings (e.g., 'ips' in 'partnerships')
+    if re.fullmatch(r"[a-z0-9]+", t):
+        if re.search(rf"\b{re.escape(t)}\b", text_blob, re.IGNORECASE):
+            return True
+    else:
+        # Direct substring match for multi-token or punctuated terms
+        if t in text_blob:
+            return True
     
     # Check for variations with separators (e.g., "Next.js" vs "nextjs" vs "next js")
     variations = [
@@ -249,7 +260,12 @@ def _present_in_text(term: str, text_blob: str) -> bool:
     ]
     
     for var in variations:
-        if var != t and var in text_blob:
+        if var == t:
+            continue
+        if re.fullmatch(r"[a-z0-9]+", var):
+            if re.search(rf"\b{re.escape(var)}\b", text_blob, re.IGNORECASE):
+                return True
+        elif var in text_blob:
             return True
     
     return False
@@ -267,9 +283,10 @@ def _scan_and_fill_from_text(text_blob: str, tech: Dict[str, Any]) -> None:
         (_BUCKETS["tools"], "tools"),
         (_BUCKETS["business"], "business"),
         (_BUCKETS["management"], "management"),
+        (_BUCKETS["domains"], "domains"),
     ]:
         for term in group:
-            if term in text_blob and _is_valid_tech_term(term, text_blob):
+            if _present_in_text(term, text_blob) and _is_valid_tech_term(term, text_blob):
                 _push_unique(tech[target], _canon(term))
 
 
@@ -452,7 +469,8 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     data["skills"] = {"must_have": must, "nice_to_have": nice}
 
     # ---- Tech stack (explicit only) ----
-    tech = data.get("tech_stack") or {}
+    # IMPORTANT: Start from an empty tech stack to avoid carrying over LLM hallucinations.
+    tech: Dict[str, Any] = {}
     _ensure_tech_keys(tech)
 
     # 1) Seed ONLY with skills that are present in the text verbatim
@@ -474,6 +492,12 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     _scan_and_fill_from_text(text_blob, tech)
     _sort_dedup(tech)
     data["tech_stack"] = tech
+
+    # ---- Domains from context (light heuristics) ----
+    # If defense/defence appears, ensure domains include "defense"
+    if ("defense" not in tech.get("domains", [])) and ("defense" in text_blob or "defence" in text_blob):
+        _push_unique(tech["domains"], "defense")
+        data["tech_stack"] = tech
 
     # ---- Experience ----
     # Parse explicit numeric ranges when present (e.g., "3+ years", "2-4 years").
@@ -511,6 +535,24 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
             if hn in text_blob:
                 cleaned_langs.append({"name": hn.capitalize(), "level": None})
     data["languages"] = cleaned_langs
+
+    # ---- Locations inference (gentle, pattern-based) ----
+    def _infer_locations(tb: str) -> List[str]:
+        locs: List[str] = []
+        # Europe / European / EMEA
+        if re.search(r"\beurope(an)?\b|\bemea\b", tb, re.IGNORECASE):
+            locs.append("Europe")
+        # Israel / IL
+        if re.search(r"\bisrael\b|\bil\b", tb, re.IGNORECASE):
+            locs.append("Israel")
+        # USA / US / United States
+        if re.search(r"\b(usa|u\.s\.a\.|u\.s\.|us|united states)\b", tb, re.IGNORECASE):
+            locs.append("United States")
+        return _dedupe_list(locs)
+
+    if not data.get("locations"):
+        inferred_locs = _infer_locations(text_blob)
+        data["locations"] = inferred_locs
 
     # ---- Locations / organization / security clearance ----
     # We do not infer or add anything here. Keep what the model extracted (if any).
@@ -554,6 +596,13 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             if _present_in_text(t, text_blob) and is_concrete_tech_keyword(t):
                 _push_unique(keyword_candidates, canon_t)
+
+    # Include select business acronyms if present (useful for matching)
+    allowed_business_keywords = {"b2b", "b2g", "g2g", "go-to-market", "gtm", "negotiation", "tenders"}
+    for t in tech.get("business", []):
+        ct = _canon(t)
+        if ct in allowed_business_keywords and _present_in_text(ct, text_blob):
+            _push_unique(keyword_candidates, ct)
 
     for s in must + nice:
         canon_s = _canon(s)
@@ -599,4 +648,27 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
         len(data["responsibilities"]), len(data["requirements"]),
         ", ".join([k for k in data["tech_stack"] if data["tech_stack"][k]])
     )
+    # ---- Summary generation (fallback) ----
+    if not (data.get("summary") or "").strip():
+        role = (data.get("role_title") or data.get("title") or "Role").strip()
+        region = ", ".join(data.get("locations") or [])
+        domain_phrase = " in defense" if "defense" in data.get("tech_stack", {}).get("domains", []) else ""
+        core_bits: List[str] = []
+        if any("tender" in r.lower() for r in data.get("requirements", []) + data.get("responsibilities", [])):
+            core_bits.append("tenders")
+        if any("contract" in r.lower() for r in data.get("requirements", []) + data.get("responsibilities", [])):
+            core_bits.append("contracts")
+        if any("channel" in r.lower() or "partnership" in r.lower() for r in data.get("responsibilities", [])):
+            core_bits.append("channels/partnerships")
+        if any("go-to-market" in t or "gtm" in t for t in (data.get("tech_stack", {}).get("business", []))):
+            core_bits.append("GTM")
+        if any("travel" in r.lower() for r in data.get("requirements", []) + data.get("responsibilities", [])):
+            core_bits.append("frequent travel")
+
+        bits = ", ".join(core_bits[:3])
+        region_part = f" in {region}" if region else ""
+        summary_txt = f"Own full-cycle business development and sales{region_part}{domain_phrase}: {bits}." if bits else \
+                      f"Own full-cycle business development and sales{region_part}{domain_phrase}."
+        data["summary"] = summary_txt.strip()
+
     return data

@@ -14,6 +14,9 @@ IMPORTANT PRINCIPLES:
 - Years of experience matter less than quality and progression
 - Look for project complexity, leadership, and impact
 - Military tech experience (IAF, 8200) indicates excellence
+- CRITICAL: 0 years of experience means JUNIOR/ENTRY-LEVEL - evaluate accordingly
+- When experience_years is 0, candidate is fresh graduate or career switcher
+- 0 years ≠ missing data - it's a real measurement requiring careful evaluation
 
 SCORING SCALE:
 - 90-100: Outstanding fit - immediate hire
@@ -21,6 +24,16 @@ SCORING SCALE:
 - 60-74: Good potential - interview with questions
 - 40-59: Weak fit - only if desperate
 - 0-39: Poor fit - wrong background
+
+FOR CANDIDATES WITH 0 YEARS EXPERIENCE:
+- ALWAYS CHECK the "experience_years" field in candidate data
+- If experience_years = 0 (numeric zero): candidate is JUNIOR/ENTRY-LEVEL with NO professional experience
+- If experience_years = "unknown" or missing: extract from resume text
+- If job requires 3+ years experience AND candidate has 0 years: score ≤ 40 (unless exceptional portfolio/projects)
+- If job is entry-level or 0-2 years required: evaluate based on education, projects, and potential
+- Fresh graduates with strong projects can score 60-75 for junior positions
+- 0 years ≠ automatic rejection - context matters (bootcamp grads, career switchers, military tech background)
+- BUT: 0 years for senior position = major mismatch
 
 OUTPUT FORMAT (strict JSON):
 {

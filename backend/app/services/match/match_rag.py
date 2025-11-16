@@ -130,11 +130,24 @@ class RAGMatcher:
                         skills.add(skill.lower().strip())
             
             # Get experience years
+            # CRITICAL: Preserve 0.0 as a real value (not None)
+            # 0 years = junior/entry-level, not missing data
             experience_years = None
             exp_meta = extraction.get("experience_meta", {})
             rec_primary = exp_meta.get("recommended_primary_years", {})
             if isinstance(rec_primary, dict):
-                experience_years = rec_primary.get("tech")
+                tech_years = rec_primary.get("tech")
+                # Explicitly check for numeric values including 0
+                if tech_years is not None and (isinstance(tech_years, (int, float))):
+                    experience_years = float(tech_years)
+            
+            # Log experience extraction for debugging (especially 0 years)
+            if experience_years is not None:
+                exp_str = f"{experience_years:.1f} years"
+            else:
+                exp_str = "unknown"
+            logger.debug("Resume %s (%s): Experience = %s", 
+                        str(resume_id)[:8], name or "Unknown", exp_str)
             
             # Calculate RAG score (0-100)
             rag_score = RAGMatcher._similarity_to_score(similarity)

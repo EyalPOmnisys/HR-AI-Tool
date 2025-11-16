@@ -109,24 +109,107 @@ def _parse_date(raw: Any) -> Optional[datetime]:
 
 
 def _duration_years(start_raw: Any, end_raw: Any) -> float:
-    """Compute duration in years (1 decimal). End defaults to now if missing or 'present'."""
+    """
+    Compute duration in years (1 decimal). End defaults to now if missing or 'present'.
+    Uses month-based calculation for accuracy:
+    - 2019-2022 = 3 years (2019-01-01 to 2022-12-31)
+    - Handles overlaps correctly in clustering logic
+    """
     s = _parse_date(start_raw)
     e = _parse_date(end_raw) or datetime.utcnow()
     if not (s and e and e >= s):
         return 0.0
-    days = (e - s).days
-    return round(max(days, 0) / 365.0, 1)
+    
+    # Calculate years and months difference
+    years_diff = e.year - s.year
+    months_diff = e.month - s.month
+    days_diff = e.day - s.day
+    
+    # Convert to total months
+    total_months = years_diff * 12 + months_diff
+    
+    # Add fraction for remaining days (approximate: days/30)
+    if days_diff > 0:
+        total_months += days_diff / 30.0
+    
+    # Convert months to years with 1 decimal precision
+    years = total_months / 12.0
+    return round(max(years, 0.0), 1)
 
 
 def _sanitize_roles(experience: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Drop rows where the 'title' is a section header in any language."""
+    """
+    Drop rows where the 'title' is a section header in any language.
+    Additionally, attempt to infer missing titles from bullets/tech stack.
+    """
     out = []
     for e in experience or []:
         title = (e or {}).get("title")
         if isinstance(title, str) and title.strip().lower() in BANNED_ROLE_TITLES:
             continue
+        
+        # If title is missing or null, try to infer from bullets/tech
+        if not title or not str(title).strip():
+            inferred = _infer_title_from_role(e)
+            if inferred:
+                e["title"] = inferred
+        
         out.append(e)
     return out
+
+
+def _infer_title_from_role(role: Dict[str, Any]) -> Optional[str]:
+    """
+    Infer job title from role description when title is missing.
+    Analyzes bullets and tech stack to determine most appropriate title.
+    Returns None if title cannot be reliably inferred.
+    """
+    bullets = role.get("bullets") or []
+    tech = role.get("tech") or []
+    
+    if not bullets:
+        return None
+    
+    # Combine bullets into single text for analysis
+    text = " ".join(str(b).lower() for b in bullets if isinstance(b, str))
+    
+    # Define keyword patterns for common roles
+    patterns = {
+        "AI Developer": ["ai-powered", "ai based", "machine learning", "ml", "gemini", "openai", "llm"],
+        "Full Stack Developer": ["full stack", "fullstack", "frontend and backend", "react and node"],
+        "Frontend Developer": ["frontend", "front-end", "react", "angular", "vue", "ui/ux"],
+        "Backend Developer": ["backend", "back-end", "api", "server", "database"],
+        "Software Developer": ["developed", "built", "implemented", "programmed"],
+        "DevOps Engineer": ["devops", "ci/cd", "docker", "kubernetes", "jenkins", "deployment"],
+        "Data Scientist": ["data analysis", "data science", "analytics", "machine learning"],
+    }
+    
+    # Check for AI/ML indicators first (highest priority)
+    if any(kw in text for kw in patterns["AI Developer"]):
+        return "AI Developer"
+    
+    # Check for full stack indicators
+    has_frontend = any(tech_item.lower() in ["react", "angular", "vue", "html", "css"] 
+                       for tech_item in tech if isinstance(tech_item, str))
+    has_backend = any(tech_item.lower() in ["node.js", "express", "django", "flask", "spring"] 
+                      for tech_item in tech if isinstance(tech_item, str))
+    
+    if has_frontend and has_backend:
+        return "Full Stack Developer"
+    
+    # Check other patterns
+    for title, keywords in patterns.items():
+        if title in ["AI Developer", "Full Stack Developer"]:
+            continue  # Already checked above
+        match_count = sum(1 for kw in keywords if kw in text)
+        if match_count >= 2:  # Require at least 2 keyword matches
+            return title
+    
+    # Generic fallback for technical roles
+    if any(kw in text for kw in ["develop", "built", "implement", "code", "software"]):
+        return "Software Developer"
+    
+    return None
 
 
 def _validate_structured_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:

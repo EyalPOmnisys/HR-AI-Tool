@@ -10,21 +10,9 @@ import type { ApiJob } from '../../types/job';
 import ProgressSteps from '../../components/ai-search/ProgressSteps/ProgressSteps';
 import { runMatch } from '../../services/match';
 import type { MatchRunResponse } from '../../types/match';
+import { loadingMessages, loadingIcons } from '../../data/loadingMessages';
 
 type ViewState = 'form' | 'loading' | 'results';
-
-const loadingMessages = [
-  'Initiating deep search across candidate database…',
-  'Loading job requirements and company culture parameters…',
-  'Processing AI analysis on skills and experience patterns…',
-  'Filtering candidates based on qualification criteria…',
-  'Analyzing multi-layer compatibility factors…',
-  'Matching candidates to role-specific requirements…',
-  'Running comprehensive analytics on top performers…',
-  'Ranking candidates by relevance and potential fit…',
-  'Optimizing recommendations with machine learning…',
-  'Finalizing results and preparing insights dashboard…',
-] as const;
 
 export default function AISearch(): ReactElement {
   // Jobs and selection
@@ -169,7 +157,7 @@ export default function AISearch(): ReactElement {
             steps={steps}
             activeIndex={activeStepIndex}
             isLoading={view === 'loading'}
-            loadingDurationMs={15000}
+            loadingDurationMs={30000}
           />
           {view === 'results' && (
             <button
@@ -198,7 +186,7 @@ export default function AISearch(): ReactElement {
       )}
 
       {view === 'loading' && (
-        <Loading messages={loadingMessages} activeIndex={activeLoadingMessage} />
+        <Loading messages={loadingMessages} activeIndex={activeLoadingMessage} icons={loadingIcons} />
       )}
 
       {view === 'results' && matchResults && (

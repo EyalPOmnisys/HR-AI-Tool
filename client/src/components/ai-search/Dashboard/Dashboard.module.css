@@ -55,7 +55,7 @@
 
 .candidateTable th {
   padding: 16px 12px;
-  text-align: left;
+  text-align: center;
   font-weight: 600;
   color: #374151;
   background: transparent;
@@ -83,6 +83,7 @@
   padding: 16px 12px;
   color: #1f2937;
   border: 1px solid #f0f0f0;
+  text-align: center;
 }
 
 .nameCell {
@@ -95,6 +96,62 @@
   color: #111827;
 }
 
+.aiInsightCell {
+  max-width: 250px;
+  font-size: 13px;
+}
+
+.aiInsight {
+  line-height: 1.5;
+  color: #374151;
+  padding: 4px 0;
+}
+
+.recommendationCell {
+  text-align: center;
+}
+
+.recommendationBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid;
+}
+
+.recommendationBadge.hire_immediately {
+  background-color: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+.recommendationBadge.strong_interview {
+  background-color: #d1fae5;
+  color: #047857;
+  border-color: #86efac;
+}
+
+.recommendationBadge.interview {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+.recommendationBadge.maybe {
+  background-color: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.recommendationBadge.pass {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
 .roleSpan {
   font-size: 12px;
   color: #6b7280;
@@ -103,18 +160,19 @@
 .scoreContainer {
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .scoreBadge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 60px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
   color: white;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .resumeLink {
@@ -425,11 +483,48 @@
 
   .candidateTable {
     font-size: 12px;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
+  .candidateTable thead,
+  .candidateTable tbody,
+  .candidateTable tr,
   .candidateTable th,
   .candidateTable td {
-    padding: 12px 8px;
+    display: block;
+  }
+
+  .candidateTable thead {
+    display: none;
+  }
+
+  .candidateTable tr {
+    margin-bottom: 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .candidateTable td {
+    border: none;
+    padding: 8px 4px;
+    position: relative;
+    padding-left: 50%;
+    text-align: right;
+  }
+
+  .candidateTable td:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 12px;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .aiInsightCell {
+    max-width: 100%;
   }
 
   .metricsRow {

@@ -52,9 +52,12 @@ class LLMJudge:
         job_requirements = LLMJudge._extract_job_requirements(job)
         
         logger.info("")
-        logger.info("JOB REQUIREMENTS:")
+        logger.info("JOB REQUIREMENTS (FULL CONTEXT):")
         logger.info("  Title: %s", job_requirements["title"])
+        logger.info("  Description length: %d chars", len(job_requirements["description"]))
         logger.info("  Must-Have Skills: %s", ", ".join(job_requirements.get("must_have_skills", [])))
+        if job_requirements.get("nice_to_have_skills"):
+            logger.info("  Nice-to-Have Skills: %s", ", ".join(job_requirements["nice_to_have_skills"]))
         logger.info("  Min Experience: %s years", job_requirements.get("min_years", "N/A"))
         logger.info("")
         
@@ -185,20 +188,31 @@ class LLMJudge:
     
     @staticmethod
     def _extract_job_requirements(job: Job) -> Dict:
-        """Extract structured requirements from job."""
+        """Extract structured requirements from job with FULL description."""
         analysis = job.analysis_json or {}
         
         # Extract must-have skills
         skills_dict = analysis.get("skills", {})
         must_have = []
+        nice_to_have = []
         if isinstance(skills_dict, dict):
             must_have = skills_dict.get("must_have", [])
+            nice_to_have = skills_dict.get("nice_to_have", [])
         
         # Extract tech stack
         tech_stack = analysis.get("tech_stack", {})
         tech_list = []
         if isinstance(tech_stack, dict):
-            tech_list = tech_stack.get("frameworks", []) + tech_stack.get("languages", [])
+            languages = tech_stack.get("languages", [])
+            frameworks = tech_stack.get("frameworks", [])
+            databases = tech_stack.get("databases", [])
+            tools = tech_stack.get("tools", [])
+            tech_list = {
+                "languages": languages,
+                "frameworks": frameworks,
+                "databases": databases,
+                "tools": tools,
+            }
         
         # Extract experience requirements
         experience = analysis.get("experience", {})
@@ -211,12 +225,23 @@ class LLMJudge:
                 if match:
                     min_years = int(match.group(1))
         
+        # Extract responsibilities
+        responsibilities = analysis.get("responsibilities", [])
+        
+        # Extract qualifications
+        qualifications = analysis.get("qualifications", {})
+        
         return {
             "title": job.title,
-            "description": job.job_description[:500] if job.job_description else "",  # First 500 chars
+            "description": job.job_description or "",  # FULL description
+            "free_text": job.free_text or "",  # Additional context
             "must_have_skills": must_have,
+            "nice_to_have_skills": nice_to_have,
             "tech_stack": tech_list,
             "min_years": min_years,
+            "responsibilities": responsibilities,
+            "qualifications": qualifications,
+            "full_analysis": analysis,  # Complete AI analysis for context
         }
     
     @staticmethod
@@ -241,7 +266,8 @@ class LLMJudge:
                     "rag_score": c["rag_score"],
                     "candidate_name": c["contact"].get("name", "Unknown"),
                     "contact_email": c["contact"].get("email"),
-                    "experience_years": c["contact"].get("experience_years"),
+                    # CRITICAL: Preserve 0 as real value - it means junior/entry-level
+                    "experience_years": c["contact"].get("experience_years") if c["contact"].get("experience_years") is not None else "unknown",
                     "skills": sorted(list(c["contact"].get("skills", []))),
                     "full_resume": c["full_resume"],
                 }
@@ -249,10 +275,16 @@ class LLMJudge:
             ]
         }
         
+        # Log candidate experience years for debugging
+        logger.info("Candidates being evaluated:")
+        for i, cand in enumerate(user_prompt["candidates"], 1):
+            exp_years = cand.get("experience_years")
+            exp_str = f"{exp_years} years" if isinstance(exp_years, (int, float)) else str(exp_years)
+            logger.info("  %d. %s - Experience: %s", i, cand.get("candidate_name", "Unknown"), exp_str)
+        
         try:
             response = await client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                temperature=0.2,  # Slight creativity for nuanced evaluation
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -287,8 +319,8 @@ class LLMJudge:
         rag_candidates: List[Dict],
         llm_evaluations: List[Dict]
     ) -> List[Dict]:
-        """Combine RAG and LLM scores into final ranking."""
-        logger.info("Combining RAG and LLM scores...")
+        """Use LLM score as the final score (RAG only used for initial filtering)."""
+        logger.info("Applying LLM scores as final scores...")
         
         # Create lookup map
         llm_map = {ev["resume_id"]: ev for ev in llm_evaluations}
@@ -305,14 +337,9 @@ class LLMJudge:
                 llm_score = llm_ev.get("llm_score", 0)
                 verdict = llm_ev.get("verdict", "unknown")
                 
-                # Weighted combination: 50% RAG + 50% LLM
-                final_score = round((rag_score * 0.5) + (llm_score * 0.5))
-                
-                # Apply verdict penalty if poor fit
-                if verdict == "poor":
-                    final_score = max(0, final_score - 15)
-                elif verdict == "weak":
-                    final_score = max(0, final_score - 8)
+                # FINAL SCORE = LLM SCORE (no averaging with RAG)
+                # RAG is only used for initial candidate filtering
+                final_score = llm_score
                 
                 results.append({
                     **candidate,
@@ -324,12 +351,12 @@ class LLMJudge:
                     "final_score": final_score,
                 })
                 
-                logger.info("  %s: RAG=%d, LLM=%d → Final=%d (%s)",
+                logger.info("  %s: RAG=%d (filter), LLM=%d → Final=%d (%s)",
                            candidate["contact"].get("name", "Unknown")[:20],
                            rag_score, llm_score, final_score, verdict)
             else:
-                # No LLM evaluation - use RAG score only
-                logger.warning("  %s: No LLM evaluation, using RAG score only",
+                # No LLM evaluation - use RAG score as fallback
+                logger.warning("  %s: No LLM evaluation, using RAG score as fallback",
                              candidate["contact"].get("name", "Unknown"))
                 results.append({
                     **candidate,
