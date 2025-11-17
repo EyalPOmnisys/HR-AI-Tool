@@ -40,7 +40,9 @@ Return ONLY valid JSON matching this exact structure:
   "skills": [
     {
       "name": string,               // Skill/technology name (normalized, e.g., "JavaScript" not "JS")
-      "category": string|null       // Optional: "language", "framework", "tool", "database", etc.
+      "source": string,              // REQUIRED: "work_experience", "projects", "education", or "skills_list"
+      "weight": number,              // REQUIRED: 1.0 (work), 0.8 (projects), 0.6 (education), 0.4 (skills_list)
+      "category": string|null        // Optional: "language", "framework", "tool", "database", etc.
     }
   ]
 }
@@ -83,9 +85,16 @@ Return ONLY valid JSON matching this exact structure:
   * Other tools (Jira, Figma, Splunk, etc.)
 
 **Skills:**
-- Extract from dedicated skills section
+- Extract ALL skills from entire resume with SOURCE TRACKING (CRITICAL)
+- For EACH skill, determine its source and assign appropriate weight:
+  * "work_experience" (weight=1.0): Skills mentioned in job responsibilities, achievements, or tech stacks
+  * "projects" (weight=0.8): Skills from personal/academic/side projects section
+  * "education" (weight=0.6): Skills from courses, degrees, certifications
+  * "skills_list" (weight=0.4): Skills from standalone skills section without context
+- A skill can appear MULTIPLE TIMES with different sources (e.g., Python in both work_experience and skills_list)
 - Normalize common variations (e.g., "JS" → "JavaScript", "K8s" → "Kubernetes")
-- Remove duplicates (case-insensitive)
+- Remove exact duplicates within same source only
+- IMPORTANT: Skills proven in work experience are MORE valuable than listed skills
 
 **Date Handling:**
 - Accept flexible formats: "2020", "2020-01", "Jan 2020", "January 2020", "2020-2022"

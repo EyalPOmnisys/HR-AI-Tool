@@ -1,15 +1,13 @@
-# app/services/match/service.py
-"""
-Match Service - Main orchestrator for the job-to-resume matching pipeline.
-Coordinates RAG vector search and LLM deep evaluation to rank and return top candidates.
-"""
+# Main orchestrator for job-to-resume matching pipeline.
+# Coordinates ensemble retrieval (RAG + skills + experience) and LLM evaluation.
+
 from __future__ import annotations
 import logging
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Job
-from app.services.match.match_rag import RAGMatcher
+from app.services.match.retrieval.ensemble import search_and_score_candidates
 from app.services.match.llm_judge import LLMJudge
 
 logger = logging.getLogger("match.service")
@@ -58,18 +56,18 @@ class MatchService:
         logger.info("Job loaded: '%s'", job.title)
         logger.info("")
         
-        # STEP 1: RAG Matching
-        # Get top 50 candidates by vector similarity (we'll narrow down to top_n after LLM)
-        logger.info("STEP 1/3: RAG Matching")
+        # STEP 1: Ensemble Retrieval (RAG + Skills + Experience)
+        # Get top 50 candidates using multi-algorithm scoring
+        logger.info("STEP 1/3: Ensemble Retrieval & Scoring")
         logger.info("-" * 80)
-        rag_candidates = await RAGMatcher.match_job_to_resumes(
+        candidates = await search_and_score_candidates(
             session=session,
             job=job,
-            top_n=50  # Get broader pool for LLM to refine
+            limit=50  # Get broader pool for LLM to refine
         )
         
-        if not rag_candidates:
-            logger.warning("No candidates found by RAG matching")
+        if not candidates:
+            logger.warning("No candidates found by ensemble scoring")
             return {
                 "job_id": job_id,
                 "requested_top_n": top_n,
@@ -77,7 +75,7 @@ class MatchService:
                 "candidates": []
             }
         
-        logger.info("RAG matching found %d candidates", len(rag_candidates))
+        logger.info("Ensemble scoring found %d candidates", len(candidates))
         logger.info("")
         
         # STEP 2: Select top candidates for deep evaluation
@@ -87,7 +85,7 @@ class MatchService:
         
         # Take top N*2 or min 15 candidates for LLM
         llm_pool_size = max(15, min(top_n * 2, 30))
-        selected_for_llm = rag_candidates[:llm_pool_size]
+        selected_for_llm = candidates[:llm_pool_size]
         
         logger.info("Selected %d candidates for LLM deep evaluation", len(selected_for_llm))
         logger.info("")

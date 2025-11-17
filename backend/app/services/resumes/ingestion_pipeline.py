@@ -238,20 +238,119 @@ def _extract_contacts(person: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _extract_skills(extraction: dict[str, Any]) -> list[str]:
-    names = []
+def _extract_skills(extraction: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Extract skills with source and weight information.
+    Returns list of SkillItem dicts: {name, source, weight, category?}
+    
+    Logic:
+    1. Skills from experience.tech that appear in bullets -> source: work_experience, weight: 1.0
+    2. Skills from experience.tech that don't appear in bullets -> source: skills_list, weight: 0.4
+    3. Skills from extraction.skills (if provided) -> use their source/weight
+    
+    Keeps only the highest-weighted occurrence of each skill.
+    """
+    seen = {}  # skill_name.lower() -> {name, source, weight, category}
+    
+    # First pass: collect all skills mentioned in experience bullets
+    experience_skills_in_bullets = set()
+    for exp in extraction.get("experience") or []:
+        if not isinstance(exp, dict):
+            continue
+        
+        # Collect all text from bullets
+        bullets_text = " ".join(exp.get("bullets") or []).lower()
+        
+        # Check which tech skills actually appear in bullets
+        for tech in exp.get("tech") or []:
+            if isinstance(tech, str) and tech.strip():
+                tech_lower = tech.lower()
+                # Check if skill appears in bullets (as whole word or part of phrase)
+                if tech_lower in bullets_text:
+                    experience_skills_in_bullets.add(tech_lower)
+    
+    # Second pass: process all tech skills from experience
+    for exp in extraction.get("experience") or []:
+        if not isinstance(exp, dict):
+            continue
+            
+        for tech in exp.get("tech") or []:
+            if not isinstance(tech, str) or not tech.strip():
+                continue
+                
+            name = _clean(tech)
+            if not name:
+                continue
+            
+            key = name.lower()
+            
+            # Determine source and weight based on whether skill appears in bullets
+            if key in experience_skills_in_bullets:
+                source = "work_experience"
+                weight = 1.0
+            else:
+                source = "skills_list"
+                weight = 0.4
+            
+            # Keep highest weight for each skill
+            if key in seen:
+                if weight > seen[key]["weight"]:
+                    seen[key] = {
+                        "name": name,
+                        "source": source,
+                        "weight": weight,
+                        "category": None
+                    }
+            else:
+                seen[key] = {
+                    "name": name,
+                    "source": source,
+                    "weight": weight,
+                    "category": None
+                }
+    
+    # Third pass: handle extraction.skills (if provided by LLM with explicit source/weight)
     for s in extraction.get("skills") or []:
-        name = _clean((s or {}).get("name"))
-        if name:
-            names.append(name)
-    seen = set()
-    uniq = []
-    for n in names:
-        key = n.lower()
-        if key not in seen:
-            seen.add(key)
-            uniq.append(n)
-    return uniq
+        if isinstance(s, dict):
+            name = _clean(s.get("name"))
+            if not name:
+                continue
+            
+            source = s.get("source", "skills_list")
+            weight = s.get("weight", 0.4)
+            category = s.get("category")
+            
+            key = name.lower()
+            if key in seen:
+                if weight > seen[key]["weight"]:
+                    seen[key] = {
+                        "name": name,
+                        "source": source,
+                        "weight": weight,
+                        "category": category
+                    }
+            else:
+                seen[key] = {
+                    "name": name,
+                    "source": source,
+                    "weight": weight,
+                    "category": category
+                }
+        elif isinstance(s, str):
+            # Legacy format: plain string (fallback to skills_list)
+            name = _clean(s)
+            if name:
+                key = name.lower()
+                if key not in seen:
+                    seen[key] = {
+                        "name": name,
+                        "source": "skills_list",
+                        "weight": 0.4,
+                        "category": None
+                    }
+    
+    # Return as list, preserving order
+    return list(seen.values())
 
 
 def _extract_experience(extraction: dict[str, Any]) -> list[dict[str, Any]]:

@@ -73,6 +73,38 @@ export const ResumeDetailPanel = ({
       .sort((a, b) => b[1] - a[1]); // largest first
   }, [resume?.yearsByCategory]);
 
+  // Group skills by source
+  const skillsBySource = useMemo(() => {
+    const grouped = new Map<string, typeof resume.skills>();
+    
+    resume?.skills.forEach((skill) => {
+      const source = skill.source || 'other';
+      if (!grouped.has(source)) {
+        grouped.set(source, []);
+      }
+      grouped.get(source)!.push(skill);
+    });
+
+    // Define source order and display names
+    const sourceOrder = ['work_experience', 'projects', 'education', 'skills_list', 'other'];
+    const sourceLabels: Record<string, string> = {
+      'work_experience': 'From Work Experience',
+      'projects': 'From Projects',
+      'education': 'From Education',
+      'skills_list': 'From Skills List',
+      'other': 'Other'
+    };
+
+    // Sort by predefined order
+    const sortedEntries = Array.from(grouped.entries()).sort(([sourceA], [sourceB]) => {
+      const indexA = sourceOrder.indexOf(sourceA);
+      const indexB = sourceOrder.indexOf(sourceB);
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+    });
+
+    return sortedEntries.map(([source, skills]) => [sourceLabels[source] || source, skills] as const);
+  }, [resume?.skills]);
+
   return (
     <aside className={styles.panel} aria-label="Resume details">
       {isLoading ? (
@@ -174,13 +206,31 @@ export const ResumeDetailPanel = ({
             {resume.skills.length > 0 && (
               <section className={styles.section}>
                 <h3 className={styles.sectionTitle}>Skills</h3>
-                <div className={styles.skillChips}>
-                  {resume.skills.map((skill) => (
-                    <span key={skill} className={styles.skillChip}>
-                      {skill}
-                    </span>
-                  ))}
-                </div>
+                {skillsBySource.map(([sourceLabel, skills]) => (
+                  <div key={sourceLabel} style={{ marginBottom: 16 }}>
+                    <h4 style={{ 
+                      fontSize: '0.85rem', 
+                      color: '#64748b', 
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      marginBottom: 8,
+                      fontWeight: 600
+                    }}>
+                      {sourceLabel}
+                    </h4>
+                    <div className={styles.skillChips}>
+                      {skills.map((skill, idx) => (
+                        <span 
+                          key={`${skill.name}-${idx}`} 
+                          className={styles.skillChip}
+                          title={skill.category ? `${skill.category} | Weight: ${skill.weight}` : `Weight: ${skill.weight}`}
+                        >
+                          {skill.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </section>
             )}
 

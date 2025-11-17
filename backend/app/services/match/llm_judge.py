@@ -1,8 +1,6 @@
-# app/services/match/llm_judge.py
-"""
-LLM Judge - Performs deep AI-powered evaluation of top candidates.
-Loads full resumes, analyzes fit against job requirements, and provides detailed scoring and recommendations.
-"""
+# Qualitative candidate evaluation that adds human-like insights to algorithmic scores.
+# Receives pre-computed scores from ensemble and provides strengths, concerns, and recommendations.
+
 from __future__ import annotations
 import logging
 from typing import List, Dict, Any
@@ -33,47 +31,26 @@ class LLMJudge:
         job: Job,
         candidates: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Perform deep LLM evaluation on top candidates.
-        
-        Args:
-            session: Database session
-            job: Job to evaluate against
-            candidates: List of candidate dicts from RAG matching
-            
-        Returns:
-            List of candidates with LLM scores and analysis
-        """
+        """Add qualitative analysis to algorithmically-scored candidates."""
         logger.info("=" * 80)
-        logger.info("LLM DEEP EVALUATION")
+        logger.info("LLM QUALITATIVE ANALYSIS")
         logger.info("=" * 80)
-        logger.info("Evaluating %d candidates for job '%s'", len(candidates), job.title)
+        logger.info("Analyzing %d candidates for '%s'", len(candidates), job.title)
         
-        # Step 1: Load full resume data for each candidate
         candidates_with_resumes = await LLMJudge._load_full_resumes(session, candidates)
-        
-        # Step 2: Extract job requirements
         job_requirements = LLMJudge._extract_job_requirements(job)
         
-        logger.info("")
-        logger.info("JOB REQUIREMENTS (FULL CONTEXT):")
-        logger.info("  Title: %s", job_requirements["title"])
-        logger.info("  Description length: %d chars", len(job_requirements["description"]))
-        logger.info("  Must-Have Skills: %s", ", ".join(job_requirements.get("must_have_skills", [])))
-        if job_requirements.get("nice_to_have_skills"):
-            logger.info("  Nice-to-Have Skills: %s", ", ".join(job_requirements["nice_to_have_skills"]))
-        logger.info("  Min Experience: %s years", job_requirements.get("min_years", "N/A"))
+        logger.info("Job: %s (Min Experience: %s years)", 
+                   job_requirements["title"], 
+                   job_requirements.get("min_years", "N/A"))
+        logger.info("Must-Have Skills: %s", ", ".join(job_requirements.get("must_have_skills", [])[:5]))
         logger.info("")
         
-        # Step 3: Call LLM for evaluation
-        llm_results = await LLMJudge._call_llm(job_requirements, candidates_with_resumes)
-        
-        # Step 4: Combine RAG + LLM scores
-        final_results = LLMJudge._combine_scores(candidates, llm_results)
+        llm_analyses = await LLMJudge._call_llm_batched(job_requirements, candidates_with_resumes)
+        final_results = LLMJudge._add_qualitative_analysis(candidates, llm_analyses)
         
         logger.info("=" * 80)
-        logger.info("LLM EVALUATION COMPLETE")
-        logger.info("Top 5 final scores: %s", [r["final_score"] for r in final_results[:5]])
+        logger.info("ANALYSIS COMPLETE - Top 5 Scores: %s", [r["final_score"] for r in final_results[:5]])
         logger.info("=" * 80)
         
         return final_results
@@ -83,7 +60,7 @@ class LLMJudge:
         session: AsyncSession,
         candidates: List[Dict]
     ) -> List[Dict]:
-        """Load complete resume data for candidates."""
+        """Load full resume text for qualitative analysis."""
         logger.info("Loading full resume data for %d candidates...", len(candidates))
         
         enriched = []
@@ -192,7 +169,7 @@ class LLMJudge:
     
     @staticmethod
     def _extract_job_requirements(job: Job) -> Dict:
-        """Extract structured requirements from job with FULL description."""
+        """Extract job requirements for LLM context."""
         analysis = job.analysis_json or {}
         
         # Extract must-have skills
@@ -249,36 +226,82 @@ class LLMJudge:
         }
     
     @staticmethod
-    async def _call_llm(
+    async def _call_llm_batched(
         job_requirements: Dict,
         candidates: List[Dict]
     ) -> List[Dict]:
-        """Call LLM to evaluate candidates."""
-        logger.info("Calling OpenAI API for deep evaluation...")
+        """Call LLM for qualitative analysis in batches of 5."""
+        BATCH_SIZE = 5
+        total_candidates = len(candidates)
+        num_batches = (total_candidates + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
         
-        # Use centralized prompt
+        logger.info("Calling OpenAI API for deep evaluation...")
+        logger.info("Total candidates: %d, Batch size: %d, Number of API calls: %d", 
+                   total_candidates, BATCH_SIZE, num_batches)
+        
+        all_evaluations = []
+        
+        for batch_num in range(num_batches):
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, total_candidates)
+            batch_candidates = candidates[start_idx:end_idx]
+            
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("BATCH %d/%d: Evaluating candidates %d-%d", 
+                       batch_num + 1, num_batches, start_idx + 1, end_idx)
+            logger.info("=" * 60)
+            
+            # Evaluate this batch
+            batch_evaluations = await LLMJudge._call_llm_single_batch(
+                job_requirements, 
+                batch_candidates,
+                batch_num + 1
+            )
+            
+            all_evaluations.extend(batch_evaluations)
+        
+        logger.info("")
+        logger.info("All batches completed. Total evaluations: %d", len(all_evaluations))
+        
+        return all_evaluations
+    
+    @staticmethod
+    async def _call_llm_single_batch(
+        job_requirements: Dict,
+        candidates: List[Dict],
+        batch_num: int
+    ) -> List[Dict]:
+        """Call LLM for qualitative analysis of a batch."""
         system_prompt = CANDIDATE_EVALUATION_PROMPT
 
-        # Build user prompt
         user_prompt = {
             "job": job_requirements,
             "candidates": [
                 {
                     "resume_id": str(c["resume_id"]),
-                    "rag_score": c["rag_score"],
                     "candidate_name": c["contact"].get("name", "Unknown"),
                     "contact_email": c["contact"].get("email"),
-                    # CRITICAL: Preserve 0 as real value - it means junior/entry-level
                     "experience_years": c["contact"].get("experience_years") if c["contact"].get("experience_years") is not None else "unknown",
                     "skills": sorted(list(c["contact"].get("skills", []))),
                     "full_resume": c["full_resume"],
+                    "algorithmic_scores": {
+                        "overall": int(c.get("rag_score", 0)),
+                        "skills": c.get("breakdown", {}).get("skills", 0),
+                        "experience": c.get("breakdown", {}).get("experience", 0),
+                        "title": c.get("breakdown", {}).get("title", 0),
+                        "rag_similarity": c.get("breakdown", {}).get("rag_similarity", 0),
+                    },
+                    "skills_detail": c.get("skills_detail", {}),
+                    "experience_detail": c.get("experience_detail", {}),
+                    "title_detail": c.get("title_detail", {}),
                 }
                 for c in candidates
             ]
         }
         
         # Log candidate experience years for debugging
-        logger.info("Candidates being evaluated:")
+        logger.info("Candidates in this batch:")
         for i, cand in enumerate(user_prompt["candidates"], 1):
             exp_years = cand.get("experience_years")
             exp_str = f"{exp_years} years" if isinstance(exp_years, (int, float)) else str(exp_years)
@@ -295,13 +318,14 @@ class LLMJudge:
             )
             
             content = response.choices[0].message.content
-            logger.info("LLM response received (%d tokens)", 
+            logger.info("Batch %d response received (%d tokens)", 
+                       batch_num,
                        getattr(response.usage, "total_tokens", 0))
             
             parsed = json.loads(content)
             evaluations = parsed.get("evaluations", [])
             
-            logger.info("LLM evaluated %d candidates", len(evaluations))
+            logger.info("Batch %d evaluated %d candidates", batch_num, len(evaluations))
             
             # Log summary
             for ev in evaluations:
@@ -313,61 +337,54 @@ class LLMJudge:
             return evaluations
             
         except Exception as e:
-            logger.error("LLM call failed: %s", str(e), exc_info=True)
+            logger.error("Batch %d LLM call failed: %s", batch_num, str(e), exc_info=True)
             return []
     
     @staticmethod
-    def _combine_scores(
-        rag_candidates: List[Dict],
-        llm_evaluations: List[Dict]
+    def _add_qualitative_analysis(
+        candidates: List[Dict],
+        llm_analyses: List[Dict]
     ) -> List[Dict]:
-        """Use LLM score as the final score (RAG only used for initial filtering)."""
-        logger.info("Applying LLM scores as final scores...")
+        """Add LLM qualitative insights while keeping algorithmic scores."""
+        logger.info("Adding qualitative analysis to candidates...")
         
-        # Create lookup map
-        llm_map = {ev["resume_id"]: ev for ev in llm_evaluations}
+        llm_map = {ev["resume_id"]: ev for ev in llm_analyses}
         
         results = []
-        for candidate in rag_candidates:
+        for candidate in candidates:
             resume_id = str(candidate["resume_id"])
-            rag_score = candidate["rag_score"]
+            algo_score = candidate["rag_score"]
             
-            # Get LLM evaluation
-            llm_ev = llm_map.get(resume_id)
+            llm_analysis = llm_map.get(resume_id)
             
-            if llm_ev:
-                llm_score = llm_ev.get("llm_score", 0)
-                verdict = llm_ev.get("verdict", "unknown")
-                
-                # FINAL SCORE = LLM SCORE (no averaging with RAG)
-                # RAG is only used for initial candidate filtering
-                final_score = llm_score
-                
+            if llm_analysis:
                 results.append({
                     **candidate,
-                    "llm_score": llm_score,
-                    "llm_verdict": verdict,
-                    "llm_strengths": llm_ev.get("strengths", ""),
-                    "llm_concerns": llm_ev.get("concerns", ""),
-                    "llm_recommendation": llm_ev.get("recommendation", ""),
-                    "final_score": final_score,
+                    "final_score": algo_score,
+                    "llm_analysis": {
+                        "strengths": llm_analysis.get("strengths", ""),
+                        "concerns": llm_analysis.get("concerns", ""),
+                        "recommendation": llm_analysis.get("recommendation", ""),
+                    }
                 })
                 
-                logger.info("  %s: RAG=%d (filter), LLM=%d → Final=%d (%s)",
+                logger.info("  %s: Score=%d, Recommendation=%s",
                            candidate["contact"].get("name", "Unknown")[:20],
-                           rag_score, llm_score, final_score, verdict)
+                           algo_score,
+                           llm_analysis.get("recommendation", "unknown"))
             else:
-                # No LLM evaluation - use RAG score as fallback
-                logger.warning("  %s: No LLM evaluation, using RAG score as fallback",
+                logger.warning("  %s: No LLM analysis",
                              candidate["contact"].get("name", "Unknown"))
                 results.append({
                     **candidate,
-                    "llm_score": 0,
-                    "llm_verdict": "not_evaluated",
-                    "final_score": rag_score,
+                    "final_score": algo_score,
+                    "llm_analysis": {
+                        "strengths": "",
+                        "concerns": "No qualitative analysis available.",
+                        "recommendation": "unknown",
+                    }
                 })
         
-        # Sort by final score
         results.sort(key=lambda x: x["final_score"], reverse=True)
         
         return results

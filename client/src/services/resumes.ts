@@ -62,7 +62,12 @@ const mapDetail = (item: ApiResumeDetail): ResumeDetail => ({
     label: contact.label,
     value: contact.value,
   })),
-  skills: item.skills,
+  skills: item.skills.map((skill) => ({
+    name: skill.name,
+    source: skill.source,
+    weight: skill.weight,
+    category: skill.category,
+  })),
   experience: item.experience.map((exp) => ({
     title: exp.title,
     company: exp.company,

@@ -4,6 +4,13 @@
 // while keeping yearsOfExperience for backward-compat.
 // -----------------------------------------------------------------------------
 
+export type SkillItem = {
+  name: string;
+  source: string;
+  weight: number;
+  category: string | null;
+};
+
 export type ApiResumeSummary = {
   id: string;
   name: string | null;
@@ -35,7 +42,7 @@ export type ApiResumeDetail = {
     label: string | null;
     value: string;
   }>;
-  skills: string[];
+  skills: SkillItem[];
   experience: Array<{
     title: string | null;
     company: string | null;
@@ -88,7 +95,7 @@ export type ResumeDetail = {
   fileSize: number | null;
   summary: string | null;
   contacts: Array<{ type: string; label: string | null; value: string }>;
-  skills: string[];
+  skills: SkillItem[];
   experience: Array<{
     title: string | null;
     company: string | null;

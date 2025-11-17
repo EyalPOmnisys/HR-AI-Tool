@@ -1,7 +1,6 @@
 # app/services/match/config.py
 """
-Match Configuration - Defines scoring thresholds and weights for the matching algorithm.
-Controls RAG/LLM balance and similarity thresholds for candidate matching.
+Match Configuration - Defines thresholds for the matching algorithm.
 """
 from dataclasses import dataclass
 
@@ -10,12 +9,8 @@ from dataclasses import dataclass
 class MatchConfig:
     """Configuration for matching algorithm."""
     
-    # Cosine similarity threshold for RAG matching
+    # Cosine similarity threshold for RAG vector search
     min_cosine_for_evidence: float = 0.35
-    
-    # RAG vs LLM score weights (for final combination)
-    rag_weight: float = 0.5
-    llm_weight: float = 0.5
 
 
 CFG = MatchConfig()

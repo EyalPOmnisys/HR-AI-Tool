@@ -15,6 +15,14 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class SkillItem(BaseModel):
+    """Skill with source tracking for weighted matching."""
+    name: str
+    source: str = "skills_list"  # "work_experience", "projects", "education", "skills_list"
+    weight: float = Field(default=1.0, ge=0.0, le=1.0)  # 1.0=work, 0.8=projects, 0.6=education, 0.4=list
+    category: Optional[str] = None  # Optional: "language", "framework", "tool", etc.
+
+
 class ResumeSummary(BaseModel):
     id: UUID
     name: Optional[str] = None
@@ -67,7 +75,7 @@ class ResumeDetail(BaseModel):
     file_size: Optional[int] = None
     summary: Optional[str] = None
     contacts: list[ResumeContactItem] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
+    skills: list[SkillItem] = Field(default_factory=list)
     experience: list[ResumeExperienceItem] = Field(default_factory=list)
     education: list[ResumeEducationItem] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
