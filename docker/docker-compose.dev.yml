@@ -64,6 +64,7 @@ services:
       - "8000:8000"
     extra_hosts:
       - "Omniai:192.168.1.43"
+      - "Omniai-srv:192.168.1.43"
     networks: [ai_stack]
 
   resume_watcher:
@@ -92,5 +93,6 @@ services:
       postgres:
         condition: service_healthy
     extra_hosts:
-      - "Omniai:192.168.1.43" 
+      - "Omniai:192.168.1.43"
+      - "Omniai-srv:192.168.1.43"
     networks: [ai_stack]

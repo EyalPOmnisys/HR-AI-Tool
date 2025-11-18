@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # --- OpenAI Integration ---
     OPENAI_API_KEY: str | None = Field(default=None, description="API key for OpenAI services")
-    OPENAI_MODEL: str = Field(default="gpt-5-mini", description="Default OpenAI model for chat/completions")
+    OPENAI_MODEL: str | None = Field(default=None, description="Default OpenAI model for chat/completions (optional if using Ollama)")
     OPENAI_EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="Default OpenAI model for embeddings")
 
     # --- Semantic Matching ---

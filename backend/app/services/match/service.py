@@ -110,6 +110,12 @@ class MatchService:
             # Extract LLM analysis fields
             llm_analysis = candidate.get("llm_analysis", {})
             
+            # Convert list to string if needed (Ollama sometimes returns lists)
+            def _ensure_string(value):
+                if isinstance(value, list):
+                    return "\n".join(str(item) for item in value)
+                return str(value) if value else ""
+            
             response_candidates.append({
                 "resume_id": candidate["resume_id"],
                 "match": candidate["final_score"],
@@ -120,8 +126,8 @@ class MatchService:
                 "resume_url": contact.get("resume_url"),
                 "rag_score": candidate["rag_score"],
                 "rag_breakdown": candidate.get("breakdown", {}),
-                "llm_strengths": llm_analysis.get("strengths", ""),
-                "llm_concerns": llm_analysis.get("concerns", ""),
+                "llm_strengths": _ensure_string(llm_analysis.get("strengths", "")),
+                "llm_concerns": _ensure_string(llm_analysis.get("concerns", "")),
                 "llm_recommendation": llm_analysis.get("recommendation", ""),
             })
         

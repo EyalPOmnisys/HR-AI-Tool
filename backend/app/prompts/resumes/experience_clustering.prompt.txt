@@ -45,17 +45,35 @@ Return ONLY valid JSON matching this exact structure:
 **CATEGORIZATION RULES:**
 
 **TECH Category:**
-Include roles that involve:
-- Software development, engineering, programming
-- DevOps, SRE, system administration
+⚠️ CRITICAL: This is the PRIMARY category for technical professionals - be GENEROUS and ACCURATE!
+
+Include ANY role that involves:
+- Software development, engineering, programming (ANY level: junior to senior)
+- DevOps, SRE, system administration, infrastructure
 - Data science, ML engineering, AI development
-- QA, test automation, security engineering
-- Technical architecture, technical leadership
+- QA, test automation, security engineering, cybersecurity
+- Technical architecture, technical leadership, CTO
 - Product management (if heavily technical)
 - Research & development (if tech-focused)
+- Technical project management, technical program management
+- Full stack, frontend, backend, mobile development
+- UAV/drone engineering, GIS development, mission-critical systems
 
-Indicators: job title contains "engineer", "developer", "architect", "devops", "data scientist", etc.
-OR tech stack is prominently mentioned (Python, Java, React, AWS, etc.)
+**PRIMARY INDICATORS (ANY ONE is sufficient for TECH classification):**
+✅ Job title contains: "engineer", "developer", "architect", "devops", "programmer", "coder", "software", "tech lead", "data scientist", "ML engineer", "AI", "full stack", "backend", "frontend"
+✅ Tech stack with 2+ technologies mentioned (Python, Java, React, Node.js, AWS, Docker, etc.)
+✅ Technical responsibilities described ("developed", "built", "implemented", "architected", "coded", "designed APIs", "deployed")
+✅ Technical tools/platforms used (Git, Jenkins, CI/CD, Kubernetes, databases, frameworks)
+
+**SPECIAL RULE FOR MILITARY/DEFENSE:**
+If a military/defense role has ANY technical indicators above, classify as TECH, NOT MILITARY.
+Example: "Software Engineer at Unit 8200" → TECH (not MILITARY)
+Example: "Cybersecurity Engineer at OFEK 324 IAF" → TECH (not MILITARY)
+Example: "Command and Control System Developer" → TECH (not MILITARY)
+
+**When in doubt between TECH and OTHER categories:**
+→ If there's ANY code, development, or engineering work mentioned → Choose TECH
+→ Technical experience is VALUABLE and should be recognized accurately
 
 **MILITARY Category:**
 Include ONLY formal military/defense service:

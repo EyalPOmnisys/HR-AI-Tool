@@ -6,8 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI, APIConnectionError, RateLimitError, BadRequestError
+import requests
 from app.core.config import settings
+
+try:
+    from openai import OpenAI, APIConnectionError, RateLimitError, BadRequestError
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 logger = logging.getLogger("ai.llm")
 
@@ -18,30 +24,48 @@ class _JSONResponse:
     data: Dict[str, Any]
 
 
+# Default Ollama chat options
+DEFAULT_CHAT_OPTIONS: Dict[str, Any] = {
+    "temperature": 0,
+    "seed": 7,
+    "repeat_penalty": 1.05,
+    "num_ctx": 8192,
+    "num_predict": 2048,
+}
+
+
 def _require_api_key() -> str:
     """Ensure an API key is configured; raise a clear error otherwise."""
     if not settings.OPENAI_API_KEY:
-        # Raising a ValueError here is intentional so callers get a deterministic failure.
         raise ValueError("OPENAI_API_KEY is not set. Please add it to your environment or .env file.")
     return settings.OPENAI_API_KEY
 
 
-def _build_client() -> OpenAI:
+def _build_openai_client() -> "OpenAI":
     """Instantiate the OpenAI client once per process."""
+    if not OPENAI_AVAILABLE:
+        raise RuntimeError("OpenAI library is not installed")
     api_key = _require_api_key()
     return OpenAI(api_key=api_key)
 
 
-# Singleton client
-_client: Optional[OpenAI] = None
+# Singleton OpenAI client
+_openai_client: Optional["OpenAI"] = None
 
 
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = _build_client()
+def _get_openai_client() -> "OpenAI":
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = _build_openai_client()
         logger.info("OpenAI client initialized")
-    return _client
+    return _openai_client
+
+
+def _build_ollama_chat_url() -> str:
+    """Build the Ollama chat endpoint URL."""
+    if not settings.OLLAMA_BASE_URL:
+        raise ValueError("OLLAMA_BASE_URL is not set. Please add it to your environment or .env file.")
+    return f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
 
 
 def load_prompt(relative_path: str) -> str:
@@ -70,40 +94,128 @@ def load_prompt(relative_path: str) -> str:
 
 class LLMClient:
     """
-    Thin wrapper around OpenAI Chat Completions to provide:
+    Unified wrapper supporting both Ollama and OpenAI:
       - chat_text: freeform text output.
       - chat_json: strict JSON output (.data dict), used by pipelines.
+    
+    Provider selection:
+      - If LLM_CHAT_MODEL is set → use Ollama
+      - If OPENAI_MODEL is set and LLM_CHAT_MODEL is not → use OpenAI
     """
 
-    def __init__(self, model: Optional[str] = None):
-        self.model = model or settings.OPENAI_MODEL
+    def __init__(self, model: Optional[str] = None, provider: Optional[str] = None):
+        # Determine provider
+        if provider:
+            self.provider = provider.lower()
+        elif settings.LLM_CHAT_MODEL:
+            self.provider = "ollama"
+        elif settings.OPENAI_MODEL:
+            self.provider = "openai"
+        else:
+            raise ValueError("No LLM provider configured. Set either LLM_CHAT_MODEL or OPENAI_MODEL")
+        
+        # Set model based on provider
+        if self.provider == "ollama":
+            self.model = model or settings.LLM_CHAT_MODEL
+            self.chat_url = _build_ollama_chat_url()
+            self.default_options = DEFAULT_CHAT_OPTIONS.copy()
+            logger.info(f"🤖 LLM Client initialized with Ollama: {self.model} @ {settings.OLLAMA_BASE_URL}")
+        elif self.provider == "openai":
+            self.model = model or settings.OPENAI_MODEL
+            logger.info(f"🤖 LLM Client initialized with OpenAI: {self.model}")
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
 
     def chat_text(self, messages: List[Dict[str, str]], timeout: int = 60) -> str:
         """Run a chat completion expecting plain text output."""
+        if self.provider == "ollama":
+            return self._chat_text_ollama(messages, timeout)
+        else:
+            return self._chat_text_openai(messages, timeout)
+
+    def chat_json(self, messages: List[Dict[str, str]], timeout: int = 90) -> _JSONResponse:
+        """
+        Run a chat completion that MUST return valid JSON.
+        """
+        if self.provider == "ollama":
+            return self._chat_json_ollama(messages, timeout)
+        else:
+            return self._chat_json_openai(messages, timeout)
+
+    # ===== Ollama Implementation =====
+    def _chat_text_ollama(self, messages: List[Dict[str, str]], timeout: int) -> str:
         try:
-            client = _get_client()
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "options": self.default_options,
+                "keep_alive": "30m",
+            }
+            response = requests.post(self.chat_url, json=payload, timeout=timeout)
+            response.raise_for_status()
+            
+            content = response.json().get("message", {}).get("content", "").strip()
+            logger.debug("🤖 Ollama chat_text received %d chars", len(content))
+            return content
+        except requests.RequestException as e:
+            logger.exception("Ollama chat_text error: %s", e)
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error in Ollama chat_text: %s", e)
+            raise
+
+    def _chat_json_ollama(self, messages: List[Dict[str, str]], timeout: int) -> _JSONResponse:
+        try:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "format": "json",
+                "stream": False,
+                "options": self.default_options,
+                "keep_alive": "30m",
+            }
+            response = requests.post(self.chat_url, json=payload, timeout=timeout)
+            response.raise_for_status()
+            
+            raw = response.json().get("message", {}).get("content", "").strip()
+            try:
+                data = self._coerce_json(raw) if raw else {}
+            except json.JSONDecodeError as je:
+                logger.error("JSON decode failed; returning error payload")
+                data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw}
+            
+            logger.debug("🤖 Ollama chat_json parsed keys: %s", list(data.keys()))
+            return _JSONResponse(data=data)
+        except requests.RequestException as e:
+            logger.exception("Ollama chat_json error: %s", e)
+            return _JSONResponse(data={"__llm_error__": str(e)})
+        except Exception as e:
+            logger.exception("Unexpected error in Ollama chat_json: %s", e)
+            return _JSONResponse(data={"__llm_error__": str(e)})
+
+    # ===== OpenAI Implementation =====
+    def _chat_text_openai(self, messages: List[Dict[str, str]], timeout: int) -> str:
+        try:
+            client = _get_openai_client()
             resp = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 timeout=timeout,
             )
             content = (resp.choices[0].message.content or "").strip()
-            logger.debug("chat_text received %d chars", len(content))
+            logger.debug("OpenAI chat_text received %d chars", len(content))
             return content
         except (APIConnectionError, RateLimitError, BadRequestError) as e:
-            logger.exception("OpenAI chat_text error: %s", e)
+            logger.exception("OpenAI API error in chat_text: %s", e)
             raise
         except Exception as e:
-            logger.exception("Unexpected error in chat_text: %s", e)
+            logger.exception("Unexpected error in OpenAI chat_text: %s", e)
             raise
 
-    def chat_json(self, messages: List[Dict[str, str]], timeout: int = 90) -> _JSONResponse:
-        """
-        Run a chat completion that MUST return valid JSON.
-        Uses `response_format={"type":"json_object"}` and parses the output.
-        """
+    def _chat_json_openai(self, messages: List[Dict[str, str]], timeout: int) -> _JSONResponse:
         try:
-            client = _get_client()
+            client = _get_openai_client()
             resp = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -116,14 +228,32 @@ class LLMClient:
             except json.JSONDecodeError as je:
                 logger.error("JSON decode failed; returning error payload")
                 data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw}
-            logger.debug("chat_json parsed keys: %s", list(data.keys()))
+            logger.debug("OpenAI chat_json parsed keys: %s", list(data.keys()))
             return _JSONResponse(data=data)
         except (APIConnectionError, RateLimitError, BadRequestError) as e:
-            logger.exception("OpenAI chat_json error: %s", e)
+            logger.exception("OpenAI API error in chat_json: %s", e)
             return _JSONResponse(data={"__llm_error__": str(e)})
         except Exception as e:
-            logger.exception("Unexpected error in chat_json: %s", e)
+            logger.exception("Unexpected error in OpenAI chat_json: %s", e)
             return _JSONResponse(data={"__llm_error__": str(e)})
+
+    @staticmethod
+    def _coerce_json(text: str) -> Dict[str, Any]:
+        """Attempt to repair common failures when the LLM returns markdown-wrapped JSON."""
+        stripped = text.strip()
+        if not stripped:
+            return {}
+        if stripped.startswith("```"):
+            stripped = stripped.strip("`")
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = stripped[start : end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        return json.loads(stripped)
 
 
 # Export a default instance so existing imports keep working

@@ -13,7 +13,7 @@ from app.services.jobs.analyzer import analyze_job_text
 from app.services.jobs.chunker import build_chunks_from_analysis
 from app.services.jobs.embedding_pipeline import create_and_embed_chunks
 from app.services.common.text_normalizer import normalize_text_for_fts, approx_token_count
-from app.services.common.openai_service import get_openai_embedding
+from app.services.common.embedding_client import default_embedding_client
 from app.core.config import settings
 
 logger = logging.getLogger("jobs.service")
@@ -93,7 +93,7 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         job.tokens = approx_token_count(normalized)
 
         combined_text = " ".join([t for t in [job.title, summary, job.job_description, job.free_text] if t])
-        embedding = get_openai_embedding(combined_text)
+        embedding = default_embedding_client.embed(combined_text)
         try:
             if len(embedding) != EMBED_DIM:
                 logger.warning("Job-level vector dim mismatch: expected %d got %d", EMBED_DIM, len(embedding))

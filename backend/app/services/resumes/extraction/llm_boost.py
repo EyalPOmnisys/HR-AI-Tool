@@ -39,8 +39,14 @@ BANNED_ROLE_TITLES = {
 }
 ALLOWED_CATEGORIES = {"tech", "military", "hospitality", "other"}
 
-LLM_TIMEOUT_S = 90
+LLM_TIMEOUT_S = 120  # Increased from 90 to allow more time for complex resumes
 RETRIES = 2
+
+# Performance tracking
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _is_number(x: Any) -> bool:
@@ -248,24 +254,38 @@ def _validate_structured_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:
 def _validate_clustering_payload(obj: Dict[str, Any]) -> Tuple[bool, str]:
     if not isinstance(obj, dict):
         return False, "clustering: not a dict"
+    
+    # Allow missing or null experience_clusters (will use fallback)
     clusters = obj.get("experience_clusters")
-    if not isinstance(clusters, list):
-        return False, "clustering: experience_clusters must be list"
+    if clusters is not None and not isinstance(clusters, list):
+        return False, f"clustering: experience_clusters must be list or null, got {type(clusters).__name__}"
+    
+    # Allow missing or null totals_by_category (will use fallback)
     totals = obj.get("totals_by_category")
-    if not isinstance(totals, dict):
-        return False, "clustering: totals_by_category must be dict"
-    for k, v in totals.items():
-        if k not in ALLOWED_CATEGORIES:
-            return False, f"clustering: illegal category {k}"
-        if not _is_number(v) or v < 0:
-            return False, f"clustering: totals_by_category {k} invalid"
-    for c in clusters:
-        cat = c.get("category")
-        if cat not in ALLOWED_CATEGORIES:
-            return False, f"clustering: cluster illegal category {cat}"
+    if totals is not None and not isinstance(totals, dict):
+        return False, f"clustering: totals_by_category must be dict or null, got {type(totals).__name__}"
+    
+    # Validate totals if present
+    if isinstance(totals, dict):
+        for k, v in totals.items():
+            if k not in ALLOWED_CATEGORIES:
+                return False, f"clustering: illegal category {k}"
+            if not _is_number(v) or v < 0:
+                return False, f"clustering: totals_by_category {k} invalid"
+    
+    # Validate clusters if present
+    if isinstance(clusters, list):
+        for c in clusters:
+            if not isinstance(c, dict):
+                continue
+            cat = c.get("category")
+            if cat and cat not in ALLOWED_CATEGORIES:
+                return False, f"clustering: cluster illegal category {cat}"
+    
     primary = obj.get("recommended_primary_years")
     if primary is not None and not isinstance(primary, dict):
         return False, "clustering: recommended_primary_years must be dict or null"
+    
     return True, ""
 
 
@@ -331,6 +351,71 @@ def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
     merged["person"] = person
 
 
+def _normalize_skill_name(skill_name: str) -> str:
+    """Normalize skill name by removing version numbers and standardizing format."""
+    if not isinstance(skill_name, str):
+        return skill_name
+    
+    # Remove version numbers: "Angular 8" → "Angular", "Python 3.9" → "Python"
+    normalized = re.sub(r'\s+v?\d+(\.\d+)*\s*$', '', skill_name.strip(), flags=re.I)
+    
+    # Remove "JS" suffix and similar: "Angular.js" → "Angular"
+    normalized = re.sub(r'\.(js|ts)$', '', normalized, flags=re.I)
+    
+    # Standardize casing for common frameworks/languages
+    mapping = {
+        "angular": "Angular",
+        "react": "React",
+        "vue": "Vue",
+        "node.js": "Node.js",
+        "nodejs": "Node.js",
+        "node js": "Node.js",
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript",
+        "c#": "C#",
+        "csharp": "C#",
+        "nestjs": "NestJS",
+        "nest.js": "NestJS",
+        "nest js": "NestJS",
+    }
+    
+    lower_norm = normalized.lower()
+    return mapping.get(lower_norm, normalized)
+
+
+def _normalize_skills_list(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize and deduplicate skills by removing version numbers."""
+    if not skills:
+        return skills
+    
+    # Normalize all skill names
+    for skill in skills:
+        if isinstance(skill, dict) and "name" in skill:
+            skill["name"] = _normalize_skill_name(skill["name"])
+    
+    # Deduplicate by normalized name, keeping highest weight/confidence
+    seen: Dict[str, Dict[str, Any]] = {}
+    for skill in skills:
+        if not isinstance(skill, dict):
+            continue
+        name = skill.get("name")
+        if not name:
+            continue
+        
+        if name not in seen:
+            seen[name] = skill
+        else:
+            # Keep skill with higher weight or confidence
+            existing = seen[name]
+            existing_weight = existing.get("weight", 0) or existing.get("confidence", 0)
+            current_weight = skill.get("weight", 0) or skill.get("confidence", 0)
+            if current_weight > existing_weight:
+                seen[name] = skill
+    
+    return list(seen.values())
+
+
 def _final_merge_base_signals(extraction: Dict[str, Any], base_json: Dict[str, Any]) -> None:
     """Always bring back deterministic base signals if LLM missed them."""
     person = extraction.setdefault("person", {})
@@ -340,9 +425,14 @@ def _final_merge_base_signals(extraction: Dict[str, Any], base_json: Dict[str, A
             person[key] = base_person.get(key) or []
     if not person.get("languages"):
         person["languages"] = base_person.get("languages")
+    
+    # Merge and normalize skills
     base_skills = base_json.get("skills") or []
-    if not extraction.get("skills"):
-        extraction["skills"] = base_skills
+    llm_skills = extraction.get("skills") or []
+    
+    # Combine both sources and normalize
+    all_skills = llm_skills + base_skills
+    extraction["skills"] = _normalize_skills_list(all_skills)
 
 
 # ----------------------- Soft-matching helpers (utils-ready) -------------------
@@ -458,10 +548,17 @@ def _fallback_totals_by_category(extraction: Dict[str, Any]) -> Dict[str, Any]:
     experience = _sanitize_roles(extraction.get("experience") or [])
     totals_by_category: Dict[str, float] = {k: 0.0 for k in ALLOWED_CATEGORIES}
 
+    logger.info(f"Fallback: processing {len(experience)} experience entries")
     for role in experience:
-        dy = _duration_years(role.get("start_date"), role.get("end_date"))
+        start = role.get("start_date")
+        end = role.get("end_date")
+        dy = _duration_years(start, end)
+        logger.debug(f"Role '{role.get('title')}' at '{role.get('company')}': start={start}, end={end}, years={dy}")
+        
         if dy <= 0:
+            logger.warning(f"Role '{role.get('title')}' has invalid duration: {dy} years")
             continue
+        
         company = role.get("company") or ""
         if _is_tech_role(role):
             cat = "tech"
@@ -469,6 +566,8 @@ def _fallback_totals_by_category(extraction: Dict[str, Any]) -> Dict[str, Any]:
             cat = "military"
         else:
             cat = "other"
+        
+        logger.info(f"Categorizing '{role.get('title')}' as {cat.upper()} ({dy} years)")
         totals_by_category[cat] = round(totals_by_category[cat] + dy, 1)
 
     # recommended_primary_years only for tech when present
@@ -476,6 +575,7 @@ def _fallback_totals_by_category(extraction: Dict[str, Any]) -> Dict[str, Any]:
     if totals_by_category.get("tech", 0.0) > 0:
         primary_years["tech"] = totals_by_category["tech"]
 
+    logger.info(f"Fallback totals: {totals_by_category}")
     return {
         "experience_clusters": [],  # fallback does not fabricate clusters
         "totals_by_category": totals_by_category,
@@ -636,9 +736,14 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
     Run extraction -> clustering -> rebuild & normalize.
     Strictly trust extraction.experience as the single source of truth for roles.
     """
+    start_time = time.time()
+    logger.info("Starting LLM extraction pipeline")
+    
     # Step 1: Extraction
     extraction: Optional[Dict[str, Any]] = None
-    for _ in range(RETRIES + 1):
+    extraction_start = time.time()
+    for attempt in range(RETRIES + 1):
+        logger.info(f"Extraction attempt {attempt + 1}/{RETRIES + 1}")
         user = (
             "TEXT:\n"
             f"{parsed_text}\n\n"
@@ -654,7 +759,10 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
         ok, _why = _validate_structured_payload(cand) if cand is not None else (False, "no data")
         if ok:
             extraction = cand
+            logger.info(f"Extraction successful in {time.time() - extraction_start:.2f}s")
             break
+        else:
+            logger.warning(f"Extraction attempt {attempt + 1} failed: {_why}")
 
     if extraction is None:
         # Hard fallback: preserve base_json and return minimal safe shape
@@ -673,13 +781,24 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
 
     extraction["_base_json_"] = base_json
 
-    # Normalize "present/current/now" and whitespace around dates
+    # Normalize date field names and values
     for role in extraction.get("experience") or []:
+        # Handle both "start"/"end" and "start_date"/"end_date" field names
+        if "start" in role and "start_date" not in role:
+            role["start_date"] = role.pop("start")
+        if "end" in role and "end_date" not in role:
+            role["end_date"] = role.pop("end")
+        
+        # Normalize "present/current/now" values
         if isinstance(role.get("end_date"), str):
             if role["end_date"].strip().lower() in {"present", "current", "now"}:
                 role["end_date"] = "present"
         if isinstance(role.get("start_date"), str):
             role["start_date"] = role["start_date"].strip()
+        
+        # Normalize tech stack to remove version numbers
+        if isinstance(role.get("tech"), list):
+            role["tech"] = [_normalize_skill_name(tech) for tech in role["tech"] if tech]
 
     extraction["experience"] = _sanitize_roles(extraction.get("experience") or [])
 
@@ -690,7 +809,9 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
     }
 
     raw_clustering: Optional[Dict[str, Any]] = None
-    for _ in range(RETRIES + 1):
+    clustering_start = time.time()
+    for attempt in range(RETRIES + 1):
+        logger.info(f"Clustering attempt {attempt + 1}/{RETRIES + 1}")
         user = (
             "INPUT:\n"
             f"{extraction_to_cluster}\n\n"
@@ -704,12 +825,25 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
         ok, _why = _validate_clustering_payload(cand) if cand is not None else (False, "no data")
         if ok:
             raw_clustering = cand
+            logger.info(f"Clustering successful in {time.time() - clustering_start:.2f}s")
             break
+        else:
+            # Log the actual response for debugging
+            if cand is not None:
+                logger.warning(f"Clustering attempt {attempt + 1} failed: {_why}. Response keys: {list(cand.keys())}")
+            else:
+                logger.warning(f"Clustering attempt {attempt + 1} failed: {_why}")
 
     if raw_clustering is None:
         raw_clustering = {"experience_clusters": [], "totals_by_category": {}, "recommended_primary_years": {}}
 
     # Step 3: Rebuild & normalize (with fallback when needed)
+    rebuild_start = time.time()
     cleaned_cluster = _rebuild_clean_clusters(extraction, raw_clustering)
+    logger.info(f"Rebuild completed in {time.time() - rebuild_start:.2f}s")
+    
     final = _final_normalize(extraction, cleaned_cluster)
+    total_time = time.time() - start_time
+    logger.info(f"LLM extraction pipeline completed in {total_time:.2f}s total")
+    
     return final

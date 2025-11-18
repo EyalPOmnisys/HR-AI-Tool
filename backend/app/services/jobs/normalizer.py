@@ -399,7 +399,6 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
                     tech_from_nice.append(term)
         
         # Also extract from "e.g., X, Y, Z" patterns
-        import re
         eg_pattern = r'e\.g\.,?\s*([^)]+)'
         eg_matches = re.findall(eg_pattern, nice_item, re.IGNORECASE)
         for match in eg_matches:

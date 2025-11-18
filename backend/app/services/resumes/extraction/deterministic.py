@@ -147,6 +147,32 @@ def _extract_languages(text: str) -> List[str]:
     return sorted(found)
 
 
+def _normalize_skill_name(skill: str) -> str:
+    """Normalize skill name by removing version numbers and common variations."""
+    if not isinstance(skill, str):
+        return skill
+    
+    # Remove version numbers and variations
+    # Examples: "Angular 8" → "Angular", "Node.js 14" → "Node.js", "Python 3.9" → "Python"
+    normalized = re.sub(r'\s+\d+(\.\d+)*\s*$', '', skill.strip(), flags=re.I)
+    normalized = re.sub(r'\s+v\d+(\.\d+)*\s*$', '', normalized, flags=re.I)
+    
+    # Additional common normalizations
+    mapping = {
+        "angular": "Angular",
+        "react": "React",
+        "vue": "Vue",
+        "node.js": "Node.js",
+        "nodejs": "Node.js",
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript",
+    }
+    
+    lower_norm = normalized.lower()
+    return mapping.get(lower_norm, normalized)
+
+
 def _extract_skills(text: str) -> List[Dict[str, Any]]:
     found: Dict[str, List[Dict[str, int]]] = {}
     for raw, norm in TECH_DICT.items():

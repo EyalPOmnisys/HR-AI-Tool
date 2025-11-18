@@ -83,6 +83,8 @@ Return ONLY valid JSON matching this exact structure:
   * Cloud platforms (AWS, GCP, Azure)
   * DevOps tools (Docker, Kubernetes, Jenkins, Git)
   * Other tools (Jira, Figma, Splunk, etc.)
+  * ⚠️ CRITICAL: Remove ALL version numbers from tech array - use "Angular" NOT "Angular 8", "Python" NOT "Python 3.9"
+  * Version numbers are irrelevant for matching and cause false negatives
 
 **Skills:**
 - Extract ALL skills from entire resume with SOURCE TRACKING (CRITICAL)
@@ -92,7 +94,11 @@ Return ONLY valid JSON matching this exact structure:
   * "education" (weight=0.6): Skills from courses, degrees, certifications
   * "skills_list" (weight=0.4): Skills from standalone skills section without context
 - A skill can appear MULTIPLE TIMES with different sources (e.g., Python in both work_experience and skills_list)
-- Normalize common variations (e.g., "JS" → "JavaScript", "K8s" → "Kubernetes")
+- **CRITICAL NORMALIZATION RULES:**
+  * Remove ALL version numbers: "Angular 8" → "Angular", "Python 3.9" → "Python", "Node.js 14" → "Node.js"
+  * Remove version prefixes: "Vue 3" → "Vue", "React 18" → "React"
+  * Standardize common variations: "JS" → "JavaScript", "K8s" → "Kubernetes", "TS" → "TypeScript"
+  * Version numbers are NOT relevant for skill matching and cause false negatives
 - Remove exact duplicates within same source only
 - IMPORTANT: Skills proven in work experience are MORE valuable than listed skills
 

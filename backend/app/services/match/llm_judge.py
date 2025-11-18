@@ -5,20 +5,20 @@ from __future__ import annotations
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
-from openai import AsyncOpenAI
 import json
+import asyncio
+from functools import partial
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models import Job, Resume, ResumeChunk
 from app.core.config import settings
-from app.services.common.llm_client import load_prompt
+from app.services.common.llm_client import load_prompt, default_llm_client
 
 # Load evaluation prompt from centralized location
 CANDIDATE_EVALUATION_PROMPT = load_prompt("match/candidate_evaluation.prompt.txt")
 
-client = AsyncOpenAI()
 logger = logging.getLogger("match.llm_judge")
 
 
@@ -243,7 +243,10 @@ class LLMJudge:
         total_candidates = len(candidates)
         num_batches = (total_candidates + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
         
-        logger.info("Calling OpenAI API for deep evaluation...")
+        # Determine which LLM provider is being used
+        llm_provider = "Ollama" if settings.LLM_CHAT_MODEL else "OpenAI"
+        llm_model = settings.LLM_CHAT_MODEL or settings.OPENAI_MODEL
+        logger.info(f"🤖 Calling {llm_provider} ({llm_model}) for deep evaluation...")
         logger.info(f"Total candidates: {total_candidates}")
         logger.info(f"Batch size: {BATCH_SIZE}")
         logger.info(f"Number of API calls: {num_batches}")
@@ -336,21 +339,24 @@ class LLMJudge:
             logger.info("  %d. %s - Experience: %s", i, cand.get("candidate_name", "Unknown"), exp_str)
         
         try:
-            response = await client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False, indent=2)},
-                ]
+            # Use LLM client (synchronous call - run in thread pool to keep async)
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False, indent=2)},
+            ]
+            
+            # Run synchronous LLM call in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, 
+                partial(default_llm_client.chat_json, messages, timeout=120)
             )
+            content_dict = response.data
             
-            content = response.choices[0].message.content
-            total_tokens = getattr(response.usage, "total_tokens", 0)
-            logger.info(f"Batch {batch_num} API response received ({total_tokens} tokens)")
+            logger.info(f"Batch {batch_num} LLM response received")
             
-            parsed = json.loads(content)
-            evaluations = parsed.get("evaluations", [])
+            # content_dict is already a dict from chat_json
+            evaluations = content_dict.get("evaluations", [])
             
             logger.info(f"Batch {batch_num} parsed: {len(evaluations)} evaluations")
             logger.info("")
