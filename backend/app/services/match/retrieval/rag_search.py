@@ -12,7 +12,6 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Job, JobChunk, Resume, ResumeChunk
-from app.services.match.config import CFG
 
 logger = logging.getLogger("match.rag")
 
@@ -102,8 +101,8 @@ async def get_job_embedding(session: AsyncSession, job: Job) -> Optional[np.ndar
 async def vector_search_candidates(
     session: AsyncSession,
     job_embedding: np.ndarray,
-    limit: int = 200,
-    min_threshold: float = None
+    limit: Optional[int] = None,
+    min_threshold: Optional[float] = None
 ) -> List[dict]:
     """
     Fast vector search to find candidate resumes using pgvector.
@@ -111,16 +110,22 @@ async def vector_search_candidates(
     Args:
         session: Database session
         job_embedding: Job embedding vector
-        limit: Maximum number of candidates to return
-        min_threshold: Minimum cosine similarity threshold (default from config)
+        limit: Maximum number of candidates to return (None = all)
+        min_threshold: Minimum cosine similarity threshold (None = no threshold)
         
     Returns:
         List of dicts with resume_id, avg_similarity, chunk_count
     """
-    if min_threshold is None:
-        min_threshold = CFG.min_cosine_for_evidence
+    # Build query with optional threshold and limit
+    where_clause = ""
+    if min_threshold is not None:
+        where_clause = "WHERE avg_similarity >= :min_threshold"
     
-    sql = text("""
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT :limit"
+    
+    sql = text(f"""
         WITH resume_scores AS (
             SELECT 
                 rc.resume_id,
@@ -136,23 +141,23 @@ async def vector_search_candidates(
             avg_similarity,
             chunk_count
         FROM resume_scores
-        WHERE avg_similarity >= :min_threshold
+        {where_clause}
         ORDER BY avg_similarity DESC
-        LIMIT :limit
+        {limit_clause}
     """)
     
     job_vec_str = str(job_embedding.tolist() if hasattr(job_embedding, 'tolist') else job_embedding)
     
-    results = (await session.execute(
-        sql,
-        {
-            "job_vec": job_vec_str,
-            "min_threshold": min_threshold,
-            "limit": limit
-        }
-    )).mappings().all()
+    params = {"job_vec": job_vec_str}
+    if min_threshold is not None:
+        params["min_threshold"] = min_threshold
+    if limit is not None:
+        params["limit"] = limit
     
-    logger.info(f"Vector search found {len(results)} candidates (threshold={min_threshold:.3f})")
+    results = (await session.execute(sql, params)).mappings().all()
+    
+    threshold_info = f"threshold={min_threshold:.3f}" if min_threshold else "no threshold"
+    logger.info(f"Vector search found {len(results)} candidates ({threshold_info})")
     
     return [dict(row) for row in results]
 

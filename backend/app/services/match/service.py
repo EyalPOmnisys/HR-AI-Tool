@@ -27,9 +27,9 @@ class MatchService:
         Run the complete matching pipeline.
         
         Flow:
-        1. RAG: Compare job embeddings to all resume embeddings → Get top 50 candidates
-        2. Select: Pick top N candidates (user specified)
-        3. LLM: Load full resumes and perform deep evaluation
+        1. RAG + Algorithms: Score ALL candidates in DB using ensemble method
+        2. Select: Pick top N candidates with highest scores (user specified)
+        3. LLM: Perform deep qualitative evaluation in batches of 5
         
         Args:
             session: Database session
@@ -57,13 +57,13 @@ class MatchService:
         logger.info("")
         
         # STEP 1: Ensemble Retrieval (RAG + Skills + Experience)
-        # Get top 50 candidates using multi-algorithm scoring
-        logger.info("STEP 1/3: Ensemble Retrieval & Scoring")
+        # Score ALL candidates and return top N
+        logger.info("STEP 1/2: Ensemble Retrieval & Scoring (ALL candidates)")
         logger.info("-" * 80)
         candidates = await search_and_score_candidates(
             session=session,
             job=job,
-            limit=50  # Get broader pool for LLM to refine
+            limit=top_n  # Get exactly what user requested
         )
         
         if not candidates:
@@ -75,33 +75,19 @@ class MatchService:
                 "candidates": []
             }
         
-        logger.info("Ensemble scoring found %d candidates", len(candidates))
+        logger.info("Ensemble scoring found %d candidates (requested: %d)", len(candidates), top_n)
         logger.info("")
         
-        # STEP 2: Select top candidates for deep evaluation
-        # Take more than requested to give LLM choices, but not too many (token limits)
-        logger.info("STEP 2/3: Selecting candidates for LLM evaluation")
+        # STEP 2: LLM Deep Evaluation on ALL selected candidates
+        logger.info("STEP 2/2: LLM Deep Evaluation (batches of 5)")
         logger.info("-" * 80)
-        
-        # Take top N*2 or min 15 candidates for LLM
-        llm_pool_size = max(15, min(top_n * 2, 30))
-        selected_for_llm = candidates[:llm_pool_size]
-        
-        logger.info("Selected %d candidates for LLM deep evaluation", len(selected_for_llm))
-        logger.info("")
-        
-        # STEP 3: LLM Deep Evaluation
-        logger.info("STEP 3/3: LLM Deep Evaluation")
-        logger.info("-" * 80)
+        logger.info("Sending all %d candidates to LLM for qualitative analysis", len(candidates))
         
         final_candidates = await LLMJudge.evaluate_candidates(
             session=session,
             job=job,
-            candidates=selected_for_llm
+            candidates=candidates  # Pass all candidates from ensemble
         )
-        
-        # Take only top_n final results
-        final_candidates = final_candidates[:top_n]
         
         logger.info("")
         logger.info("=" * 80)
@@ -121,6 +107,9 @@ class MatchService:
             if isinstance(contact.get("skills"), set):
                 contact["skills"] = sorted(list(contact["skills"]))
             
+            # Extract LLM analysis fields
+            llm_analysis = candidate.get("llm_analysis", {})
+            
             response_candidates.append({
                 "resume_id": candidate["resume_id"],
                 "match": candidate["final_score"],
@@ -130,12 +119,10 @@ class MatchService:
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
                 "rag_score": candidate["rag_score"],
-                "rag_breakdown": candidate.get("breakdown", {}),  # Add weighted breakdown
-                "llm_score": candidate.get("llm_score", 0),
-                "llm_verdict": candidate.get("llm_verdict", "not_evaluated"),
-                "llm_strengths": candidate.get("llm_strengths", ""),
-                "llm_concerns": candidate.get("llm_concerns", ""),
-                "llm_recommendation": candidate.get("llm_recommendation", ""),
+                "rag_breakdown": candidate.get("breakdown", {}),
+                "llm_strengths": llm_analysis.get("strengths", ""),
+                "llm_concerns": llm_analysis.get("concerns", ""),
+                "llm_recommendation": llm_analysis.get("recommendation", ""),
             })
         
         return {

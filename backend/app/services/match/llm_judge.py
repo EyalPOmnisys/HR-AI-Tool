@@ -31,11 +31,16 @@ class LLMJudge:
         job: Job,
         candidates: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Add qualitative analysis to algorithmically-scored candidates."""
+        """
+        Add qualitative analysis to algorithmically-scored candidates.
+        Processes ALL candidates in batches of 5.
+        """
         logger.info("=" * 80)
         logger.info("LLM QUALITATIVE ANALYSIS")
         logger.info("=" * 80)
-        logger.info("Analyzing %d candidates for '%s'", len(candidates), job.title)
+        logger.info("Analyzing ALL %d candidates for '%s'", len(candidates), job.title)
+        logger.info("Processing in batches of 5 candidates per API call")
+        logger.info("")
         
         candidates_with_resumes = await LLMJudge._load_full_resumes(session, candidates)
         job_requirements = LLMJudge._extract_job_requirements(job)
@@ -49,8 +54,11 @@ class LLMJudge:
         llm_analyses = await LLMJudge._call_llm_batched(job_requirements, candidates_with_resumes)
         final_results = LLMJudge._add_qualitative_analysis(candidates, llm_analyses)
         
+        logger.info("")
         logger.info("=" * 80)
-        logger.info("ANALYSIS COMPLETE - Top 5 Scores: %s", [r["final_score"] for r in final_results[:5]])
+        logger.info("ANALYSIS COMPLETE")
+        logger.info(f"Processed: {len(final_results)} candidates")
+        logger.info(f"Top 5 Scores: {[r['final_score'] for r in final_results[:5]]}")
         logger.info("=" * 80)
         
         return final_results
@@ -236,8 +244,10 @@ class LLMJudge:
         num_batches = (total_candidates + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
         
         logger.info("Calling OpenAI API for deep evaluation...")
-        logger.info("Total candidates: %d, Batch size: %d, Number of API calls: %d", 
-                   total_candidates, BATCH_SIZE, num_batches)
+        logger.info(f"Total candidates: {total_candidates}")
+        logger.info(f"Batch size: {BATCH_SIZE}")
+        logger.info(f"Number of API calls: {num_batches}")
+        logger.info("")
         
         all_evaluations = []
         
@@ -248,8 +258,7 @@ class LLMJudge:
             
             logger.info("")
             logger.info("=" * 60)
-            logger.info("BATCH %d/%d: Evaluating candidates %d-%d", 
-                       batch_num + 1, num_batches, start_idx + 1, end_idx)
+            logger.info(f"BATCH {batch_num + 1}/{num_batches}: Evaluating candidates {start_idx + 1}-{end_idx}")
             logger.info("=" * 60)
             
             # Evaluate this batch
@@ -260,10 +269,12 @@ class LLMJudge:
             )
             
             all_evaluations.extend(batch_evaluations)
+            
+            logger.info(f"Batch {batch_num + 1}/{num_batches} completed: {len(batch_evaluations)} evaluations received")
         
         logger.info("")
-        logger.info("All batches completed. Total evaluations: %d", len(all_evaluations))
-        
+        logger.info(f"All {num_batches} batches completed. Total evaluations: {len(all_evaluations)}")
+        logger.info("")
         return all_evaluations
     
     @staticmethod
@@ -274,6 +285,23 @@ class LLMJudge:
     ) -> List[Dict]:
         """Call LLM for qualitative analysis of a batch."""
         system_prompt = CANDIDATE_EVALUATION_PROMPT
+        
+        def convert_to_json_serializable(obj):
+            """Convert numpy types to native Python types for JSON serialization"""
+            import numpy as np
+            if isinstance(obj, (np.integer, np.int32, np.int64)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float32, np.float64)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_json_serializable(item) for item in obj]
+            elif isinstance(obj, set):
+                return sorted(list(obj))
+            return obj
 
         user_prompt = {
             "job": job_requirements,
@@ -282,19 +310,19 @@ class LLMJudge:
                     "resume_id": str(c["resume_id"]),
                     "candidate_name": c["contact"].get("name", "Unknown"),
                     "contact_email": c["contact"].get("email"),
-                    "experience_years": c["contact"].get("experience_years") if c["contact"].get("experience_years") is not None else "unknown",
+                    "experience_years": float(c["contact"].get("experience_years")) if c["contact"].get("experience_years") is not None else "unknown",
                     "skills": sorted(list(c["contact"].get("skills", []))),
                     "full_resume": c["full_resume"],
                     "algorithmic_scores": {
                         "overall": int(c.get("rag_score", 0)),
-                        "skills": c.get("breakdown", {}).get("skills", 0),
-                        "experience": c.get("breakdown", {}).get("experience", 0),
-                        "title": c.get("breakdown", {}).get("title", 0),
-                        "rag_similarity": c.get("breakdown", {}).get("rag_similarity", 0),
+                        "skills": int(c.get("breakdown", {}).get("skills", 0)),
+                        "experience": int(c.get("breakdown", {}).get("experience", 0)),
+                        "title": int(c.get("breakdown", {}).get("title", 0)),
+                        "rag_similarity": int(c.get("breakdown", {}).get("rag_similarity", 0)),
                     },
-                    "skills_detail": c.get("skills_detail", {}),
-                    "experience_detail": c.get("experience_detail", {}),
-                    "title_detail": c.get("title_detail", {}),
+                    "skills_detail": convert_to_json_serializable(c.get("skills_detail", {})),
+                    "experience_detail": convert_to_json_serializable(c.get("experience_detail", {})),
+                    "title_detail": convert_to_json_serializable(c.get("title_detail", {})),
                 }
                 for c in candidates
             ]
@@ -318,26 +346,24 @@ class LLMJudge:
             )
             
             content = response.choices[0].message.content
-            logger.info("Batch %d response received (%d tokens)", 
-                       batch_num,
-                       getattr(response.usage, "total_tokens", 0))
+            total_tokens = getattr(response.usage, "total_tokens", 0)
+            logger.info(f"Batch {batch_num} API response received ({total_tokens} tokens)")
             
             parsed = json.loads(content)
             evaluations = parsed.get("evaluations", [])
             
-            logger.info("Batch %d evaluated %d candidates", batch_num, len(evaluations))
+            logger.info(f"Batch {batch_num} parsed: {len(evaluations)} evaluations")
+            logger.info("")
             
             # Log summary
             for ev in evaluations:
-                logger.info("  %s: Score=%d, Verdict=%s",
-                           ev.get("resume_id", "unknown")[:8],
-                           ev.get("llm_score", 0),
-                           ev.get("verdict", "unknown"))
+                resume_id_short = str(ev.get("resume_id", "unknown"))[:8]
+                logger.info(f"  • {resume_id_short}: Score={ev.get('llm_score', 0)}, Verdict={ev.get('verdict', 'unknown')}")
             
             return evaluations
             
         except Exception as e:
-            logger.error("Batch %d LLM call failed: %s", batch_num, str(e), exc_info=True)
+            logger.error(f"Batch {batch_num} LLM call failed: {str(e)}", exc_info=True)
             return []
     
     @staticmethod

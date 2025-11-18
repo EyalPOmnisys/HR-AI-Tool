@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = Field(default="gpt-5-mini", description="Default OpenAI model for chat/completions")
     OPENAI_EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="Default OpenAI model for embeddings")
 
+    # --- Semantic Matching ---
+    SENTENCE_TRANSFORMER_MODEL: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="SentenceTransformer model for semantic title matching (fast, ~80MB, enhanced with keyword boost)"
+    )
+
     # --- CV analysis ---
     USE_LLM_EXTRACTION: bool = True
     EXTRACTION_VERSION: int = 2

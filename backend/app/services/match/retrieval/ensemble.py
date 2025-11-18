@@ -10,9 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Job, Resume
 from app.services.match.retrieval import rag_search, skills_matcher, experience_scorer, title_matcher
 from app.services.match.retrieval.rag_search import cosine_similarity
-from app.services.match.config import CFG
+from app.services.match.retrieval.title_matcher import TitleMatcher
 
 logger = logging.getLogger("match.ensemble")
+
+# Initialize title embedder once for efficiency
+TITLE_EMBEDDER = None
+
+
+def get_title_embedder():
+    """Lazy-load title embedder on first use"""
+    global TITLE_EMBEDDER
+    if TITLE_EMBEDDER is None:
+        TITLE_EMBEDDER = TitleMatcher.get_embedder()
+    return TITLE_EMBEDDER
 
 
 async def search_and_score_candidates(
@@ -24,47 +35,51 @@ async def search_and_score_candidates(
     Main ensemble scorer combining multiple algorithms.
     
     Pipeline:
-    1. RAG vector search - fast semantic filtering (top 200)
+    1. RAG vector search - semantic similarity across ALL candidates in DB
     2. Skills matching - deterministic weighted scoring
-    3. Experience scoring - (future enhancement)
-    4. Weighted combination - produce final ranked list
+    3. Experience scoring - seniority and years match
+    4. Title matching - role alignment
+    5. Weighted combination - produce final ranked list
     
     Args:
         session: Database session
         job: Job to match candidates against
-        limit: Number of top candidates to return
+        limit: Number of top candidates to return after scoring ALL
         
     Returns:
-        List of candidate dicts with scores, breakdown, and metadata
+        List of top N candidate dicts with scores, breakdown, and metadata
     """
     logger.info("=" * 80)
     logger.info(f"ENSEMBLE SCORING: Job '{job.title}' (id={job.id})")
     logger.info("=" * 80)
+    logger.info(f"Will score ALL candidates and return top {limit}")
+    logger.info("")
     
     # ===== STAGE 1: RAG Vector Search (Semantic Filtering) =====
-    logger.info("Stage 1: RAG vector search for semantic filtering...")
+    logger.info("Stage 1: RAG vector search - checking ALL candidates in DB...")
     
     job_embedding = await rag_search.get_job_embedding(session, job)
     if job_embedding is None:
         logger.error("No job embedding found - cannot perform matching")
         return []
     
-    # Get ~200 candidates from vector search
+    # Get ALL candidates from vector search (no limit, no threshold)
     rag_candidates = await rag_search.vector_search_candidates(
         session=session,
         job_embedding=job_embedding,
-        limit=200,
-        min_threshold=CFG.min_cosine_for_evidence
+        limit=None,
+        min_threshold=None
     )
     
-    logger.info(f"RAG search found {len(rag_candidates)} candidates")
+    logger.info(f"RAG search found {len(rag_candidates)} candidates (ALL resumes in DB)")
     
     if not rag_candidates:
-        logger.info("No candidates passed RAG threshold")
+        logger.info("No candidates found in DB (no resumes with embeddings)")
         return []
     
     # ===== STAGE 2: Detailed Scoring for Each Candidate =====
-    logger.info(f"Stage 2: Detailed scoring for {len(rag_candidates)} candidates...")
+    logger.info(f"Stage 2: Detailed scoring for ALL {len(rag_candidates)} candidates...")
+    logger.info("")
     
     # Extract job requirements
     job_analysis = job.analysis_json or {}
@@ -102,21 +117,40 @@ async def search_and_score_candidates(
             )
             exp_score = exp_result["score"]
             
-            # === Calculate Title Match Score ===
-            title_result = title_matcher.calculate_title_match_from_extraction(
-                job_analysis=job_analysis,
-                resume_extraction=extraction
+            # === Calculate Title Match Score (Semantic Similarity) ===
+            # Extract resume titles from work history
+            experiences = extraction.get("experience", [])
+            resume_titles = []
+            for exp in experiences[:3]:  # Check top 3 recent roles
+                if isinstance(exp, dict):
+                    exp_title = exp.get("title")
+                    if exp_title:
+                        resume_titles.append(exp_title)
+            
+            # Use semantic embeddings for title matching
+            embedder = get_title_embedder()
+            title_score_100 = TitleMatcher.compute_title_match(
+                job_title=job.title,
+                resume_titles=resume_titles,
+                embedder=embedder
             )
-            title_score = title_result["score"]
+            title_score = title_score_100 / 100.0  # Convert to 0-1 scale
+            
+            # === Extract Contact Info First (for logging) ===
+            person = extraction.get("person", {})
+            name = person.get("name", "Unknown")
+            
+            # Best matching title for logging
+            best_resume_title = resume_titles[0] if resume_titles else "No title"
             
             # === Log Individual Scores ===
             logger.info("┌─────────────────────────────────────────────────────────────────┐")
-            logger.info(f"│ Candidate: {resume.full_name[:45]:<45} │")
+            logger.info(f"│ Candidate: {name[:45]:<45} │")
             logger.info("├─────────────────────────────────────────────────────────────────┤")
             logger.info(f"│ 🎯 Skills:      {skills_result.weighted_score:>6.1f}% │ Required: {skills_result.required_match_rate:>3.0f}% │")
             logger.info(f"│ 💼 Experience:  {exp_score * 100:>6.1f}% │ {exp_result.get('verdict', 'N/A')[:22]:<22} │")
             logger.info(f"│ 🔍 RAG:         {rag_similarity * 100:>6.1f}% │ Vector similarity        │")
-            logger.info(f"│ 👔 Title:       {title_score * 100:>6.1f}% │ Jaccard similarity       │")
+            logger.info(f"│ 👔 Title:       {title_score * 100:>6.1f}% │ '{best_resume_title[:20]}'")
             logger.info("└─────────────────────────────────────────────────────────────────┘")
             
             # === Ensemble Weighted Score ===
@@ -139,9 +173,7 @@ async def search_and_score_candidates(
             # Convert to 0-100 scale
             final_score_int = int(final_score * 100)
             
-            # === Extract Contact Info ===
-            person = extraction.get("person", {})
-            
+            # === Extract Additional Contact Info ===
             emails = person.get("emails", [])
             email = None
             if emails and isinstance(emails, list) and len(emails) > 0:
@@ -153,8 +185,6 @@ async def search_and_score_candidates(
             if phones and isinstance(phones, list) and len(phones) > 0:
                 phone_obj = phones[0]
                 phone = phone_obj.get("value") if isinstance(phone_obj, dict) else phone_obj
-            
-            name = person.get("name")
             
             # Extract skill names for display
             skills_set = set()
@@ -194,9 +224,9 @@ async def search_and_score_candidates(
                     "verdict": exp_result.get("verdict")
                 },
                 "title_detail": {
-                    "job_title": title_result.get("job_title"),
-                    "resume_title": title_result.get("resume_title"),
-                    "matched_words": title_result.get("matched_words", [])
+                    "job_title": job.title,
+                    "resume_titles": resume_titles,
+                    "best_match_score": title_score_100
                 },
                 "contact": {
                     "name": name,
@@ -210,8 +240,8 @@ async def search_and_score_candidates(
             
             scored_candidates.append(candidate_dict)
             
-            # Log progress
-            if (idx + 1) % 50 == 0:
+            # Log progress every 10 candidates
+            if (idx + 1) % 10 == 0:
                 logger.info(f"Processed {idx + 1}/{len(rag_candidates)} candidates...")
         
         except Exception as e:
@@ -222,9 +252,12 @@ async def search_and_score_candidates(
     scored_candidates.sort(key=lambda x: x["rag_score"], reverse=True)
     final_candidates = scored_candidates[:limit]
     
+    logger.info("")
     logger.info("=" * 80)
     logger.info("ENSEMBLE SCORING COMPLETE")
-    logger.info(f"Returning {len(final_candidates)} top candidates")
+    logger.info(f"Total candidates scored: {len(scored_candidates)}")
+    logger.info(f"Returning top {len(final_candidates)} candidates (requested: {limit})")
+    logger.info("")
     
     if final_candidates:
         logger.info("Top 5 candidates:")
