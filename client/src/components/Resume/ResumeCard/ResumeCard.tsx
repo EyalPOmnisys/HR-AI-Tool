@@ -11,7 +11,8 @@ type ResumeCardProps = {
 export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement => {
   const { name, profession, yearsOfExperience, resumeUrl } = resume
   const displayName = name ?? 'Unnamed candidate'
-  const displayProfession = profession ?? 'Professional'
+  // If profession is missing, show a neutral fallback
+  const displayProfession = profession ?? 'Candidate'
 
   const yearsLabel =
     typeof yearsOfExperience === 'number' ? `${yearsOfExperience} years` : 'Not specified'

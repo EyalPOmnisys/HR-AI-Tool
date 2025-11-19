@@ -18,6 +18,7 @@ export type CandidateRow = {
   resume_id: string;
   match: number;
   candidate: string | null;
+  title: string | null;
   experience: string | null;
   email: string | null;
   phone: string | null;
@@ -29,6 +30,8 @@ export type CandidateRow = {
   llm_strengths?: string;
   llm_concerns?: string;
   llm_recommendation?: string;
+  stability_score?: number;
+  stability_verdict?: string;
 };
 
 export type MatchRunResponse = {

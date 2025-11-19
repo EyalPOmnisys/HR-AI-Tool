@@ -190,26 +190,23 @@ class TitleMatcher:
             return 0.0
 
     @staticmethod
-    def compute_title_match(
+    def compute_detailed_match(
         job_title: str,
         resume_titles: List[str],
         embedder: Optional[SentenceTransformer] = None
-    ) -> float:
+    ) -> Dict[str, Any]:
         """
-        Compute best title match using HYBRID approach:
-        1. Semantic similarity (base score 0-100)
-        2. Keyword matching boost (+0-30)
+        Compute best title match and return detailed results.
         
-        Args:
-            job_title: The job title to match against
-            resume_titles: List of job titles from the resume
-            embedder: Optional pre-loaded embedder (for efficiency)
-            
         Returns:
-            Best match score 0-100
+            Dict with 'score', 'best_title', and 'all_matches'
         """
         if not job_title or not resume_titles:
-            return 0.0
+            return {
+                "score": 0.0,
+                "best_title": "",
+                "all_matches": []
+            }
 
         # Get embedder
         if embedder is None:
@@ -218,6 +215,7 @@ class TitleMatcher:
         # Find best matching title from resume
         best_score = 0.0
         best_title = ""
+        all_matches = []
 
         for resume_title in resume_titles:
             if not resume_title or not resume_title.strip():
@@ -239,6 +237,13 @@ class TitleMatcher:
             # 3. Combined score (capped at 100)
             combined_score = min(100.0, semantic_score + keyword_boost)
             
+            all_matches.append({
+                "title": resume_title,
+                "semantic_score": semantic_score,
+                "keyword_boost": keyword_boost,
+                "final_score": combined_score
+            })
+            
             if combined_score > best_score:
                 best_score = combined_score
                 best_title = resume_title
@@ -249,7 +254,33 @@ class TitleMatcher:
                 f"Title match: '{job_title}' ↔ '{best_title}' = {best_score:.1f}%"
             )
 
-        return best_score
+        return {
+            "score": best_score,
+            "best_title": best_title,
+            "all_matches": all_matches
+        }
+
+    @staticmethod
+    def compute_title_match(
+        job_title: str,
+        resume_titles: List[str],
+        embedder: Optional[SentenceTransformer] = None
+    ) -> float:
+        """
+        Compute best title match using HYBRID approach:
+        1. Semantic similarity (base score 0-100)
+        2. Keyword matching boost (+0-30)
+        
+        Args:
+            job_title: The job title to match against
+            resume_titles: List of job titles from the resume
+            embedder: Optional pre-loaded embedder (for efficiency)
+            
+        Returns:
+            Best match score 0-100
+        """
+        result = TitleMatcher.compute_detailed_match(job_title, resume_titles, embedder)
+        return result["score"]
 
 
 # Legacy function signatures for backward compatibility
@@ -311,63 +342,90 @@ def calculate_title_match_from_extraction(
 def calculate_title_match_with_history(
     job_title: str,
     experience_list: list[Dict[str, Any]],
+    candidate_profession: Optional[str] = None,
     top_n: int = 3
 ) -> Dict[str, Any]:
     """
-    Calculate title match considering candidate's work history (top N roles).
-    Now uses semantic similarity instead of Jaccard.
-    
-    Takes the best match from recent roles, giving candidates credit for
-    relevant past experience even if their current role differs.
+    Calculate title match considering candidate's work history AND their primary profession.
     
     Args:
         job_title: Target job title
         experience_list: List of experience dicts with 'title' field
+        candidate_profession: The primary profession displayed in the frontend
         top_n: Number of recent roles to consider
         
     Returns:
-        Dict with best_score, best_matching_title, and all_scores
+        Dict with best_score, best_matching_title, best_source, and all_scores
     """
-    if not job_title or not experience_list:
+    if not job_title:
         return {
             "best_score": 0.0,
             "best_matching_title": None,
+            "best_source": None,
             "all_scores": []
         }
     
-    # Extract titles from experience list
-    resume_titles = []
-    for exp in experience_list[:top_n]:
-        if not isinstance(exp, dict):
-            continue
-        
-        resume_title = exp.get("title")
-        if resume_title:
-            resume_titles.append(resume_title)
+    # 1. Collect all titles to check
+    titles_to_check = []
     
-    if not resume_titles:
+    # A. Primary Profession (High Priority - matches Frontend)
+    if candidate_profession and candidate_profession.strip():
+        titles_to_check.append({
+            "title": candidate_profession.strip(),
+            "source": "primary_profession"
+        })
+
+    # B. Recent History
+    if experience_list:
+        for exp in experience_list[:top_n]:
+            if not isinstance(exp, dict):
+                continue
+            
+            t = exp.get("title")
+            if t and t.strip():
+                # Avoid duplicates if profession matches recent role
+                if not any(x["title"].lower() == t.strip().lower() for x in titles_to_check):
+                    titles_to_check.append({
+                        "title": t.strip(),
+                        "source": "history"
+                    })
+    
+    if not titles_to_check:
         return {
             "best_score": 0.0,
             "best_matching_title": None,
+            "best_source": None,
             "all_scores": []
         }
     
-    # Calculate semantic similarity for each title
+    # 2. Calculate scores
     embedder = TitleMatcher.get_embedder()
     scores = []
     
-    for resume_title in resume_titles:
-        score = TitleMatcher.compute_semantic_similarity(job_title, resume_title, embedder)
+    for item in titles_to_check:
+        title_text = item["title"]
+        source = item["source"]
+        
+        # Use detailed match logic
+        res = TitleMatcher.compute_detailed_match(job_title, [title_text], embedder)
+        score_val = round(res["score"], 1)
+        
         scores.append({
-            "title": resume_title,
-            "score": round(score, 1)
+            "title": title_text,
+            "score": score_val,
+            "source": source
         })
+        
+        # Debug log
+        source_label = "⭐ (Primary)" if source == "primary_profession" else "(History)"
+        logger.debug(f"Checking title {source_label}: '{title_text}' = {score_val}%")
     
-    # Find best match
+    # 3. Find best match
     best = max(scores, key=lambda x: x["score"])
     
     return {
         "best_score": best["score"],
         "best_matching_title": best["title"],
+        "best_source": best.get("source"),
         "all_scores": scores
     }

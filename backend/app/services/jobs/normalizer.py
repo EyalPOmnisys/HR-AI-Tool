@@ -10,105 +10,36 @@ import logging
 from typing import Dict, Any, List
 from collections import Counter
 
+from app.services.common.skills_normalizer import (
+    normalize_skill, 
+    normalize_skill_list
+)
+
 logger = logging.getLogger("jobs.normalizer")
 
 # ===== Canonicalization =====
-# Return lowercase canonical names for technologies/tools/frameworks etc.
-# (We prefer lowercase for searchability and schema consistency.)
-_ALIAS_TO_CANON = {
-    # Business/domain aliases
-    "defence": "defense",
-    "go to market": "go-to-market",
-    "gtm": "go-to-market",
-    "ts": "typescript",
-    "typescript": "typescript",
-    "javascript": "javascript",
-        # Aliases for embedded/cyber domain
-    "netsec": "network security",
-    "netsecurity": "network security",
-    "infosec": "information security",
-    "pentesting": "penetration testing",
-    "pentest": "penetration testing",
-    "vapt": "vulnerability assessment",
-    "rtl": "real-time logic",
-    "mcu": "microcontroller",
-    "soc": "system on chip",
-    "fpga": "field programmable gate array",
-    
-    # Standard tech aliases
-    "js": "javascript",
-    "node": "node.js",
-    "node.js": "node.js",
-    "nodejs": "node.js",
-    "express": "express.js",
-    "express.js": "express.js",
-    "expressjs": "express.js",
-    "postgres": "postgresql",
-    "postgresql": "postgresql",
-    "redis": "redis",
-    "zod": "zod",
-    "tanstack-query": "tanstack query",
-    "tanstack query": "tanstack query",
-    "mui": "mui",
-    "material ui": "mui",
-    "material-ui": "mui",
-    "opentelemetry": "opentelemetry",
-    "open telemetry": "opentelemetry",
-    "websocket": "websockets",
-    "websockets": "websockets",
-    "rest": "rest apis",
-    "rest apis": "rest apis",
-    "rest api": "rest apis",
-    "restful": "rest apis",
-    "ci/cd": "ci/cd",
-    "git": "git",
-    "vite": "vite",
-    "drizzle-orm": "drizzle orm",
-    "drizzle orm": "drizzle orm",
-    "react": "react",
-    "reactjs": "react",
-    "react.js": "react",
-    "react native": "react native",
-    "next": "next.js",
-    "next.js": "next.js",
-    "nextjs": "next.js",
-    "graphql": "graphql",
-    "redux": "redux",
-    "context api": "context api",
-    "es6": "javascript",
-    "es6+": "javascript",
-    "html5": "html",
-    "html": "html",
-    "css3": "css",
-    "css": "css",
-    "scss": "scss",
-    "sass": "sass",
-    "tailwind": "tailwindcss",
-    "tailwindcss": "tailwindcss",
-    "docker": "docker",
-    "kubernetes": "kubernetes",
-    "k8s": "kubernetes",
-    "aws": "aws",
-    "amazon web services": "aws",
-    "azure": "azure",
-    "microsoft azure": "azure",
-    "gcp": "gcp",
-    "google cloud": "gcp",
-    "jenkins": "jenkins",
-    "github": "github",
-    "gitlab": "gitlab",
-    "github copilot": "github copilot",
-    "copilot": "github copilot",
-    "cursor": "cursor",
-    "windsurf": "windsurf",
-    "playwright": "playwright",
-    "cypress": "cypress",
-    "jest": "jest",
-    "agile": "agile",
-    "scrum": "scrum",
-}
+# NOTE: This function now delegates to the centralized skills_normalizer.py
+# All skill normalization goes through normalize_skill() for perfect consistency
+# across resumes, jobs, and matching.
 
-# Buckets are lowercase identifiers we can match against the JD text
+def _canon(term: str) -> str:
+    """
+    Canonicalize a raw term using the centralized normalizer.
+    
+    This ensures perfect consistency across:
+    - Resume extraction
+    - Job extraction  
+    - Matching algorithm
+    
+    Example: "node", "nodejs", "Node.js 14" all -> "Node.js"
+    
+    Returns lowercase for internal bucket matching.
+    """
+    if not term or not isinstance(term, str):
+        return ""
+    # Use centralized normalizer, then lowercase for bucket matching
+    return normalize_skill(term).lower()
+# Buckets use CANONICAL names from normalizer for consistency
 _BUCKETS = {
     "languages": {
         "javascript", "typescript", "python", "java", "go", "ruby", "rust", "scala", "php", "swift", "kotlin", 
@@ -210,21 +141,16 @@ def _is_valid_tech_term(term: str, text_blob: str) -> bool:
 _HUMAN_LANGS = ["english", "hebrew", "french", "german", "spanish", "arabic", "russian"]
 
 
-def _canon(term: str) -> str:
-    """
-    Canonicalize a raw term to our lowercase standard name.
-    Only performs normalization; it does not attempt to reclassify.
-    """
-    t = (term or "").strip().lower()
-    if not t:
-        return ""
-    return _ALIAS_TO_CANON.get(t, t)
-
-
 def _push_unique(bucket: List[str], value: str) -> None:
-    v = value.strip().lower()
-    if v and v not in bucket:
-        bucket.append(v)
+    """Add normalized skill to bucket if not already present."""
+    if not value or not isinstance(value, str):
+        return
+    # Normalize using centralizer
+    normalized = normalize_skill(value.strip())
+    normalized_lower = normalized.lower()
+    # Check if already exists (case-insensitive)
+    if not any(item.lower() == normalized_lower for item in bucket):
+        bucket.append(normalized)  # Store with proper capitalization
 
 
 def _ensure_tech_keys(tech: Dict[str, Any]) -> None:

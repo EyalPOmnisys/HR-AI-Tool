@@ -4,7 +4,7 @@
 from __future__ import annotations
 import logging
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy import select
@@ -50,31 +50,13 @@ async def get_job_embedding(session: AsyncSession, job: Job) -> Optional[np.ndar
     Get job embedding vector for matching.
     
     Priority:
-    1. Use job's primary embedding_vector_768 if available
+    1. Use job's primary embedding if available (Vector 1536)
     2. Calculate average of all job chunk embeddings
-    
-    Args:
-        session: Database session
-        job: Job object
-        
-    Returns:
-        Job embedding vector or None if unavailable
     """
-    # Option 1: Use job's primary embedding
-    if hasattr(job, 'embedding_vector_768'):
-        embedding = job.embedding_vector_768
-        if embedding is not None:
-            try:
-                # For numpy arrays, check size
-                if hasattr(embedding, 'size') and embedding.size > 0:
-                    logger.info("Using job primary embedding (768d)")
-                    return embedding
-                # For lists, check length
-                elif isinstance(embedding, (list, tuple)) and len(embedding) > 0:
-                    logger.info("Using job primary embedding (768d)")
-                    return np.array(embedding)
-            except Exception as e:
-                logger.warning(f"Error accessing job primary embedding: {e}")
+    # Option 1: Use job's primary embedding (Fixed attribute name)
+    if job.embedding is not None:
+        # pgvector returns numpy array or list depending on driver, ensure numpy
+        return np.array(job.embedding) if not isinstance(job.embedding, np.ndarray) else job.embedding
     
     # Option 2: Average of job chunk embeddings
     job_chunks: List[JobChunk] = (await session.execute(
@@ -106,6 +88,7 @@ async def vector_search_candidates(
 ) -> List[dict]:
     """
     Fast vector search to find candidate resumes using pgvector.
+    Uses the Top-Level Resume Embedding for best semantic retrieval.
     
     Args:
         session: Database session
@@ -117,30 +100,22 @@ async def vector_search_candidates(
         List of dicts with resume_id, avg_similarity, chunk_count
     """
     # Build query with optional threshold and limit
-    where_clause = ""
+    where_clause = "WHERE r.embedding IS NOT NULL"
     if min_threshold is not None:
-        where_clause = "WHERE avg_similarity >= :min_threshold"
+        where_clause += f" AND 1 - (r.embedding <=> CAST(:job_vec AS vector)) >= :min_threshold"
     
     limit_clause = ""
     if limit is not None:
         limit_clause = "LIMIT :limit"
     
+    # Optimized Query: Uses the main 'resumes' table embedding (Stronger signal for overall fit)
+    # We subquery chunk_count to maintain compatibility with your existing return structure
     sql = text(f"""
-        WITH resume_scores AS (
-            SELECT 
-                rc.resume_id,
-                AVG(1 - (re.embedding <=> CAST(:job_vec AS vector))) as avg_similarity,
-                COUNT(*) as chunk_count
-            FROM resume_embeddings re
-            JOIN resume_chunks rc ON rc.id = re.chunk_id
-            WHERE re.embedding IS NOT NULL
-            GROUP BY rc.resume_id
-        )
         SELECT 
-            resume_id,
-            avg_similarity,
-            chunk_count
-        FROM resume_scores
+            r.id as resume_id,
+            1 - (r.embedding <=> CAST(:job_vec AS vector)) as avg_similarity,
+            (SELECT COUNT(*) FROM resume_chunks rc WHERE rc.resume_id = r.id) as chunk_count
+        FROM resumes r
         {where_clause}
         ORDER BY avg_similarity DESC
         {limit_clause}
@@ -232,3 +207,72 @@ async def get_job_chunks_embeddings(
             result.append((chunk, emb_row.embedding))
     
     return result
+
+
+async def calculate_chunk_coverage(
+    session: AsyncSession,
+    job_id: UUID,
+    resume_ids: List[UUID]
+) -> Dict[UUID, float]:
+    """
+    The "Strongest" Comparison: Calculates how well resumes cover specific Job Requirements.
+    
+    Logic:
+    For each Job Chunk (Requirement), find the BEST matching Resume Chunk.
+    Score = Average of these "Best Matches".
+    
+    This penalizes resumes that miss entire requirements, even if they are generally similar.
+    """
+    if not resume_ids:
+        return {}
+
+    # 1. Get all Job Chunks with embeddings
+    job_chunks_result = await session.execute(
+        select(JobChunk)
+        .where(JobChunk.job_id == job_id)
+        .options(selectinload(JobChunk.embedding_row))
+    )
+    job_chunks = [jc for jc in job_chunks_result.scalars().all() if jc.embedding_row and jc.embedding_row.embedding is not None]
+    
+    if not job_chunks:
+        return {rid: 0.0 for rid in resume_ids}
+
+    # 2. Get all Resume Chunks for the candidates
+    # We do this in Python to allow complex N x M logic without crazy SQL joins
+    resume_chunks_result = await session.execute(
+        select(ResumeChunk)
+        .where(ResumeChunk.resume_id.in_(resume_ids))
+        .options(selectinload(ResumeChunk.embedding_row))
+    )
+    all_resume_chunks = resume_chunks_result.scalars().all()
+    
+    # Group by resume
+    resume_map = {rid: [] for rid in resume_ids}
+    for rc in all_resume_chunks:
+        if rc.embedding_row and rc.embedding_row.embedding is not None:
+            resume_map[rc.resume_id].append(np.array(rc.embedding_row.embedding))
+
+    scores = {}
+    
+    # 3. Calculate Coverage Score for each resume
+    for rid, r_embeddings in resume_map.items():
+        if not r_embeddings:
+            scores[rid] = 0.0
+            continue
+            
+        # For this resume, calculate best match for EACH job chunk
+        best_matches = []
+        for jc in job_chunks:
+            j_vec = np.array(jc.embedding_row.embedding)
+            
+            # Find max similarity for this specific job chunk against ALL resume chunks
+            # (Did the candidate mention this specific requirement anywhere?)
+            similarities = [cosine_similarity(j_vec, r_vec) for r_vec in r_embeddings]
+            best_match_for_requirement = max(similarities) if similarities else 0.0
+            best_matches.append(best_match_for_requirement)
+        
+        # Final score is the average of the BEST matches
+        # High score = Candidate has a good answer for every requirement
+        scores[rid] = float(np.mean(best_matches)) if best_matches else 0.0
+
+    return scores

@@ -7,6 +7,7 @@ from app.api.routers import health as health_router
 from app.api.routers import jobs as jobs_router
 from app.api.routers import resumes as resumes_router
 from app.api.routers import match as match_router
+from app.api.routers import llm_test as llm_test_router
 from app.core.config import settings
 
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router.router)
     app.include_router(resumes_router.router)
     app.include_router(match_router.router)
+    app.include_router(llm_test_router.router)
 
     return app
 

@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.services.common.llm_client import default_llm_client, load_prompt
+from app.services.common.skills_normalizer import normalize_skill, normalize_tech_array
 
 RESUME_EXTRACTION_PROMPT = load_prompt("resumes/resume_extraction.prompt.txt")
 EXPERIENCE_CLUSTERING_PROMPT = load_prompt("resumes/experience_clustering.prompt.txt")
@@ -351,73 +352,59 @@ def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
     merged["person"] = person
 
 
-def _normalize_skill_name(skill_name: str) -> str:
-    """Normalize skill name by removing version numbers and standardizing format."""
-    if not isinstance(skill_name, str):
-        return skill_name
-    
-    # Remove version numbers: "Angular 8" → "Angular", "Python 3.9" → "Python"
-    normalized = re.sub(r'\s+v?\d+(\.\d+)*\s*$', '', skill_name.strip(), flags=re.I)
-    
-    # Remove "JS" suffix and similar: "Angular.js" → "Angular"
-    normalized = re.sub(r'\.(js|ts)$', '', normalized, flags=re.I)
-    
-    # Standardize casing for common frameworks/languages
-    mapping = {
-        "angular": "Angular",
-        "react": "React",
-        "vue": "Vue",
-        "node.js": "Node.js",
-        "nodejs": "Node.js",
-        "node js": "Node.js",
-        "python": "Python",
-        "javascript": "JavaScript",
-        "typescript": "TypeScript",
-        "c#": "C#",
-        "csharp": "C#",
-        "nestjs": "NestJS",
-        "nest.js": "NestJS",
-        "nest js": "NestJS",
-    }
-    
-    lower_norm = normalized.lower()
-    return mapping.get(lower_norm, normalized)
+# Removed: _normalize_skill_name - now using centralized normalize_skill() from skills_normalizer
 
 
 def _normalize_skills_list(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Normalize and deduplicate skills by removing version numbers."""
+    """Normalize and deduplicate skills by removing version numbers.
+    
+    Handles both formats:
+    - Legacy: {name, provenance, confidence}
+    - New: {name, source, weight, category}
+    
+    Merges duplicate skills by keeping highest weight, combining sources.
+    """
     if not skills:
         return skills
     
-    # Normalize all skill names
+    # Convert legacy format to new format and normalize names
+    normalized_skills = []
     for skill in skills:
-        if isinstance(skill, dict) and "name" in skill:
-            skill["name"] = _normalize_skill_name(skill["name"])
+        if not isinstance(skill, dict) or "name" not in skill:
+            continue
+        normalized_name = normalize_skill(skill["name"])
+        source_val = skill.get("source", "unknown")
+        # Binary weighting enforcement: work_experience => 1.0, else 0.6
+        enforced_weight = 1.0 if source_val == "work_experience" else 0.6
+        normalized_skills.append({
+            "name": normalized_name,
+            "source": source_val,
+            "weight": enforced_weight,
+            "category": skill.get("category")
+        })
     
-    # Deduplicate by normalized name, keeping highest weight/confidence
+    # Deduplicate by name, keeping highest weight per source
     seen: Dict[str, Dict[str, Any]] = {}
-    for skill in skills:
-        if not isinstance(skill, dict):
-            continue
-        name = skill.get("name")
-        if not name:
-            continue
-        
+    for skill in normalized_skills:
+        name = skill["name"]
         if name not in seen:
             seen[name] = skill
         else:
-            # Keep skill with higher weight or confidence
-            existing = seen[name]
-            existing_weight = existing.get("weight", 0) or existing.get("confidence", 0)
-            current_weight = skill.get("weight", 0) or skill.get("confidence", 0)
-            if current_weight > existing_weight:
+            # Experience (weight 1.0) overrides general (0.6); otherwise keep first.
+            if skill["weight"] > seen[name]["weight"]:
                 seen[name] = skill
     
     return list(seen.values())
 
 
 def _final_merge_base_signals(extraction: Dict[str, Any], base_json: Dict[str, Any]) -> None:
-    """Always bring back deterministic base signals if LLM missed them."""
+    """Always bring back deterministic base signals if LLM missed them.
+    
+    Merges skills intelligently:
+    - LLM skills (from work_experience, projects, education, skills_list) have priority
+    - Deterministic skills add coverage for tech mentioned but not extracted by LLM
+    - Deduplication keeps highest weight per unique skill name
+    """
     person = extraction.setdefault("person", {})
     base_person = base_json.get("person") or {}
     for key in ("emails", "phones", "links", "profiles"):
@@ -426,13 +413,19 @@ def _final_merge_base_signals(extraction: Dict[str, Any], base_json: Dict[str, A
     if not person.get("languages"):
         person["languages"] = base_person.get("languages")
     
-    # Merge and normalize skills
+    # Merge and normalize skills from both sources
     base_skills = base_json.get("skills") or []
     llm_skills = extraction.get("skills") or []
     
-    # Combine both sources and normalize
+    logger.debug(f"Merging skills: {len(llm_skills)} from LLM, {len(base_skills)} from deterministic")
+    
+    # Combine: LLM skills first (higher priority), then deterministic
     all_skills = llm_skills + base_skills
+    
+    # Normalize and deduplicate (keeps highest weight per skill)
     extraction["skills"] = _normalize_skills_list(all_skills)
+    
+    logger.debug(f"After merge: {len(extraction['skills'])} unique skills")
 
 
 # ----------------------- Soft-matching helpers (utils-ready) -------------------
@@ -513,27 +506,94 @@ def _soft_match_role(
 _TECH_TITLE_KEYWORDS = (
     "developer", "engineer", "software", "frontend", "front end", "backend", "back end",
     "full stack", "devops", "sre", "site reliability", "data", "ml", "machine learning",
-    "ai", "android", "ios", "mobile", "architect", "security", "platform", "automation", "qa"
+    "ai", "android", "ios", "mobile", "architect", "security", "platform", "automation", "qa",
+    "programmer", "coder", "tech lead", "technical lead", "tech", "cybersecurity", "cyber",
+    # Hebrew keywords
+    "מפתח", "מהנדס", "תוכנה", "הנדסת"
+)
+
+_STRONG_TECH_TITLES = (
+    "developer", "engineer", "programmer", "data scientist", "devops", "cyber", "architect", "sre"
+)
+
+_WEAK_TECH_TITLES = (
+    "technician", "support", "help desk", "operator", "controller", "admin", "administrator", 
+    "instructor", "assistant", "student", "intern", "analyst"
+)
+
+_TECH_COMPANY_INDICATORS = (
+    "tech", "software", "technology", "systems", "digital", "cyber", "ai", "data",
+    # Hebrew indicators
+    "טכנולוגי", "תוכנה", "מערכות", "סייבר"
+)
+
+_ACADEMIC_INDICATORS = (
+    "university", "college", "school", "technion", "institute", "academy", "ben gurion", "tel aviv", "hebrew u"
 )
 
 
 def _is_tech_role(role: Dict[str, Any]) -> bool:
     """Return True if role clearly looks technical by title keywords or a non-empty tech stack."""
+    title_n = _norm_text(role.get("title"))
+    company_n = _norm_text(role.get("company"))
+    
+    # 1. Check for Military/Academic context to apply stricter rules
+    is_military = _looks_military_company(company_n)
+    is_academic = any(ind in company_n for ind in _ACADEMIC_INDICATORS)
+    
+    # If Military or Academic, we are skeptical of generic titles
+    if is_military or is_academic:
+        # If title contains weak keywords (Technician, Controller, Student, Project)
+        # and NO strong keywords (Developer, Engineer), reject it.
+        if any(weak in title_n for weak in _WEAK_TECH_TITLES) or "project" in title_n:
+            if not any(strong in title_n for strong in _STRONG_TECH_TITLES):
+                # Exception: If they have a VERY strong tech stack, maybe accept?
+                # But "Technician" with "Word, Excel" is bad. "Technician" with "Python, C++" is okay.
+                tech_list = role.get("tech")
+                if isinstance(tech_list, list):
+                    # Check for actual programming languages, not just tools
+                    strong_tech = {"python", "java", "c++", "c#", "javascript", "typescript", "react", "node", "aws", "docker"}
+                    has_strong_tech = any(_norm_text(t) in strong_tech for t in tech_list if isinstance(t, str))
+                    if not has_strong_tech:
+                        return False
+                else:
+                    return False
+
+    # 2. Check tech stack - strongest indicator (if not filtered above)
     tech_list = role.get("tech")
     if isinstance(tech_list, list) and any(isinstance(t, str) and t.strip() for t in tech_list):
         return True
-    title_n = _norm_text(role.get("title"))
-    return any(k in title_n for k in _TECH_TITLE_KEYWORDS)
+    
+    # 3. Check title for technical keywords
+    if any(k in title_n for k in _TECH_TITLE_KEYWORDS):
+        # Double check: if it's "Technician" without context, might be weak?
+        # But _TECH_TITLE_KEYWORDS includes "tech".
+        # If we are here, it wasn't filtered by the military/academic check.
+        return True
+    
+    # 4. Check company name for tech indicators
+    if any(k in company_n for k in _TECH_COMPANY_INDICATORS):
+        return True
+    
+    # 5. Check bullets for technical work indicators
+    bullets = role.get("bullets", [])
+    if isinstance(bullets, list):
+        bullets_text = " ".join(str(b).lower() for b in bullets if isinstance(b, str))
+        tech_work_keywords = ["develop", "code", "program", "build", "implement", "deploy", "api", "system", "software"]
+        if any(kw in bullets_text for kw in tech_work_keywords):
+            return True
+    
+    return False
 
 
 def _looks_military_company(company_raw: Optional[str]) -> bool:
-    """Detect common military/defense org hints (e.g., IAF/IDF/Unit numbers/Ofek)."""
+    """Detect common military/defense org hints (e.g., IAF/IDF/Unit numbers)."""
     name = _norm_text(company_raw)
     if not name:
         return False
-    if any(tag in name for tag in ("iaf", "idf", "air force", "ofek", "tzahal", "8200")):
+    if any(tag in name for tag in ("iaf", "idf", "air force", "ofek", "tzahal", "צהל", "army", "navy", "military")):
         return True
-    # 'unit' combined with a unit number is a strong signal (e.g., 'unit 324')
+    # 'unit' combined with a unit number is a signal (e.g., 'unit 324')
     if "unit" in name and re.search(r"\b\d{2,4}\b", name):
         return True
     return False
@@ -796,9 +856,9 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
         if isinstance(role.get("start_date"), str):
             role["start_date"] = role["start_date"].strip()
         
-        # Normalize tech stack to remove version numbers
+        # Normalize tech stack using centralized normalizer
         if isinstance(role.get("tech"), list):
-            role["tech"] = [_normalize_skill_name(tech) for tech in role["tech"] if tech]
+            role["tech"] = normalize_tech_array(role["tech"])
 
     extraction["experience"] = _sanitize_roles(extraction.get("experience") or [])
 

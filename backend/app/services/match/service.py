@@ -29,7 +29,7 @@ class MatchService:
         Flow:
         1. RAG + Algorithms: Score ALL candidates in DB using ensemble method
         2. Select: Pick top N candidates with highest scores (user specified)
-        3. LLM: Perform deep qualitative evaluation in batches of 5
+        3. LLM: Perform deep evaluation in batches of 3 - LLM provides FINAL authoritative score
         
         Args:
             session: Database session
@@ -79,9 +79,9 @@ class MatchService:
         logger.info("")
         
         # STEP 2: LLM Deep Evaluation on ALL selected candidates
-        logger.info("STEP 2/2: LLM Deep Evaluation (batches of 5)")
+        logger.info("STEP 2/2: LLM Deep Evaluation (batches of 3)")
         logger.info("-" * 80)
-        logger.info("Sending all %d candidates to LLM for qualitative analysis", len(candidates))
+        logger.info("Sending all %d candidates to LLM for authoritative scoring", len(candidates))
         
         final_candidates = await LLMJudge.evaluate_candidates(
             session=session,
@@ -116,10 +116,16 @@ class MatchService:
                     return "\n".join(str(item) for item in value)
                 return str(value) if value else ""
             
+            # Extract stability data
+            stability_detail = candidate.get("stability_detail", {})
+            stability_score = stability_detail.get("score", 0.5) if stability_detail else 0.5
+            stability_verdict = stability_detail.get("verdict", "unknown") if stability_detail else "unknown"
+            
             response_candidates.append({
                 "resume_id": candidate["resume_id"],
                 "match": candidate["final_score"],
                 "candidate": contact.get("name"),
+                "title": contact.get("title"),
                 "experience": _format_experience(contact.get("experience_years")),
                 "email": contact.get("email"),
                 "phone": contact.get("phone"),
@@ -129,6 +135,8 @@ class MatchService:
                 "llm_strengths": _ensure_string(llm_analysis.get("strengths", "")),
                 "llm_concerns": _ensure_string(llm_analysis.get("concerns", "")),
                 "llm_recommendation": llm_analysis.get("recommendation", ""),
+                "stability_score": int(stability_score * 100),
+                "stability_verdict": stability_verdict,
             })
         
         return {
@@ -139,10 +147,10 @@ class MatchService:
         }
 
 
-def _format_experience(years: float | None) -> str | None:
+def _format_experience(years: float | None) -> str:
     """Format experience years for display."""
-    if years is None:
-        return None
+    if years is None or years == 0:
+        return "0 yrs"
     if years < 1:
         return "<1 yr"
     if years % 1 == 0:

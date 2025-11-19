@@ -1,8 +1,10 @@
-# Deterministic skills matching algorithm with weighted scoring.
-# Compares candidate skills against job requirements using source-based weights.
+# Skills matching algorithm - Simple source-based classification.
+# Matches candidate skills to job requirements and classifies by source.
 
 from __future__ import annotations
 from typing import Any, Optional
+
+from app.services.common.skills_normalizer import normalize_skill
 
 
 class SkillsMatchResult:
@@ -38,22 +40,34 @@ class SkillsMatchResult:
         }
 
 
+def _classify_skill_source(source: str) -> tuple[str, float]:
+    """
+    Classify skill source and return (category, weight).
+    
+    Binary weighting model:
+    - "work_experience": Skills from work experience context (weight=1.0)
+    - "general": Skills from any other source (weight=0.6)
+    """
+    if source in ("work_experience", "experience"):
+        return ("work_experience", 1.0)
+    return ("general", 0.6)
+
+
 def calculate_skills_match(
     candidate_skills: list[dict[str, Any]],
     required_skills: list[str],
     nice_to_have_skills: Optional[list[str]] = None
 ) -> SkillsMatchResult:
     """
-    Calculate deterministic skills match score with source-based weighting.
+    Calculate skills match score using binary weighting model.
     
-    Scoring logic:
-    - Each required skill matched with weight 1.0 (work_experience) = 100% credit
-    - Each required skill matched with weight 0.4 (skills_list) = 40% credit
-    - Nice-to-have skills add bonus points (up to 10% extra)
-    - Final score normalized to 0-100 range
+    Binary Scoring (simplified from schema):
+    - Experience skills (from work bullets): weight=1.0 (100% credit)
+    - General skills (projects/education/list/etc.): weight=0.6 (60% credit)
+    - Nice-to-have skills add bonus (up to 10% extra)
     
     Args:
-        candidate_skills: List of skill dicts with {name, source, weight, category}
+        candidate_skills: List of skill dicts with {name, source, weight?, category?}
         required_skills: List of required skill names
         nice_to_have_skills: Optional list of nice-to-have skill names
     
@@ -62,11 +76,7 @@ def calculate_skills_match(
     """
     nice_to_have_skills = nice_to_have_skills or []
     
-    # Normalize skill names for comparison (case-insensitive)
-    def normalize(name: str) -> str:
-        return name.strip().lower()
-    
-    # Build candidate skills map: normalized_name -> best skill item
+    # Build candidate skills map: normalized_name -> skill info
     candidate_skills_map = {}
     for skill in candidate_skills:
         if not isinstance(skill, dict):
@@ -76,12 +86,30 @@ def calculate_skills_match(
         if not name:
             continue
         
-        norm_name = normalize(name)
-        weight = skill.get("weight", 0.4)
+        # Normalize using central normalizer
+        norm_name = normalize_skill(name).lower()
+        source = skill.get("source", "other")
         
-        # Keep the skill with highest weight
-        if norm_name not in candidate_skills_map or weight > candidate_skills_map[norm_name]["weight"]:
-            candidate_skills_map[norm_name] = skill
+        # Classify source and get weight
+        source_category, weight = _classify_skill_source(source)
+        
+        # Keep the skill with highest weight (prefer work_experience over other)
+        if norm_name not in candidate_skills_map:
+            candidate_skills_map[norm_name] = {
+                "name": name,
+                "source": source,
+                "source_category": source_category,
+                "weight": weight,
+                "category": skill.get("category")
+            }
+        elif weight > candidate_skills_map[norm_name]["weight"]:
+            candidate_skills_map[norm_name] = {
+                "name": name,
+                "source": source,
+                "source_category": source_category,
+                "weight": weight,
+                "category": skill.get("category")
+            }
     
     # Match required skills
     matched_required = []
@@ -90,21 +118,20 @@ def calculate_skills_match(
     max_possible_weight = len(required_skills)
     
     for req_skill in required_skills:
-        norm_req = normalize(req_skill)
+        norm_req = normalize_skill(req_skill).lower()
         
         if norm_req in candidate_skills_map:
             matched_skill = candidate_skills_map[norm_req]
-            weight = matched_skill.get("weight", 0.4)
-            source = matched_skill.get("source", "skills_list")
             
             matched_required.append({
-                "name": matched_skill.get("name"),
-                "source": source,
-                "weight": weight,
+                "name": matched_skill["name"],
+                "source": matched_skill["source"],
+                "source_category": matched_skill["source_category"],
+                "weight": matched_skill["weight"],
                 "category": matched_skill.get("category")
             })
             
-            total_required_weight += weight
+            total_required_weight += matched_skill["weight"]
         else:
             missing_required.append(req_skill)
     
@@ -113,7 +140,7 @@ def calculate_skills_match(
         base_score = (total_required_weight / max_possible_weight) * 100
         required_match_rate = len(matched_required) / max_possible_weight
     else:
-        base_score = 100.0  # No requirements = perfect match
+        base_score = 100.0
         required_match_rate = 1.0
     
     # Match nice-to-have skills (bonus up to 10 points)
@@ -121,20 +148,20 @@ def calculate_skills_match(
     bonus_weight = 0.0
     
     for nice_skill in nice_to_have_skills:
-        norm_nice = normalize(nice_skill)
+        norm_nice = normalize_skill(nice_skill).lower()
         
         if norm_nice in candidate_skills_map:
             matched_skill = candidate_skills_map[norm_nice]
-            weight = matched_skill.get("weight", 0.4)
             
             matched_nice_to_have.append({
-                "name": matched_skill.get("name"),
-                "source": matched_skill.get("source", "skills_list"),
-                "weight": weight,
+                "name": matched_skill["name"],
+                "source": matched_skill["source"],
+                "source_category": matched_skill["source_category"],
+                "weight": matched_skill["weight"],
                 "category": matched_skill.get("category")
             })
             
-            bonus_weight += weight * 0.5  # Each nice-to-have worth 50% of required
+            bonus_weight += matched_skill["weight"] * 0.5
     
     # Calculate bonus score (capped at 10 points)
     bonus_score = min(bonus_weight * 10, 10.0)
@@ -166,48 +193,3 @@ def calculate_skills_match(
         weighted_score=weighted_score,
         details=details
     )
-
-
-def calculate_skills_match_by_category(
-    candidate_skills: list[dict[str, Any]],
-    required_skills_by_category: dict[str, list[str]],
-    nice_to_have_by_category: Optional[dict[str, list[str]]] = None
-) -> dict[str, Any]:
-    """
-    Calculate skills match broken down by category (e.g., backend, frontend, devops).
-    
-    Args:
-        candidate_skills: List of skill dicts with {name, source, weight, category}
-        required_skills_by_category: Dict of category -> list of required skills
-        nice_to_have_by_category: Optional dict of category -> list of nice-to-have skills
-    
-    Returns:
-        Dict with overall score and per-category breakdown
-    """
-    nice_to_have_by_category = nice_to_have_by_category or {}
-    
-    category_results = {}
-    total_weight = 0.0
-    total_possible = 0.0
-    
-    for category, required_skills in required_skills_by_category.items():
-        nice_to_have = nice_to_have_by_category.get(category, [])
-        
-        result = calculate_skills_match(
-            candidate_skills=candidate_skills,
-            required_skills=required_skills,
-            nice_to_have_skills=nice_to_have
-        )
-        
-        category_results[category] = result.to_dict()
-        
-        # Weight categories equally for overall score
-        total_weight += result.weighted_score
-        total_possible += 100.0
-    
-    overall_score = (total_weight / total_possible * 100) if total_possible > 0 else 0.0
-    
-    return {
-        "overall_score": round(overall_score, 2),
-        "categories": category_results
-    }

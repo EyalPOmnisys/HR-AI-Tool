@@ -1,5 +1,5 @@
-# Qualitative candidate evaluation that adds human-like insights to algorithmic scores.
-# Receives pre-computed scores from ensemble and provides strengths, concerns, and recommendations.
+# LLM Judge: Final evaluation and scoring of candidates.
+# The LLM receives complete job + resume data and provides authoritative scoring.
 
 from __future__ import annotations
 import logging
@@ -10,20 +10,29 @@ import asyncio
 from functools import partial
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
-from app.models import Job, Resume, ResumeChunk
+from app.models import Job, Resume
 from app.core.config import settings
 from app.services.common.llm_client import load_prompt, default_llm_client
 
-# Load evaluation prompt from centralized location
+# Load evaluation prompt
 CANDIDATE_EVALUATION_PROMPT = load_prompt("match/candidate_evaluation.prompt.txt")
 
 logger = logging.getLogger("match.llm_judge")
 
 
 class LLMJudge:
-    """Performs deep LLM-based evaluation of candidates."""
+    """
+    LLM-based candidate evaluation.
+    
+    Flow:
+    1. Prepare job data (title + description + analysis_json)
+    2. Prepare candidate data (extraction_json + algorithmic_score)
+    3. Call LLM in batches of 3 candidates
+    4. Return evaluations with final_score, strengths, concerns, recommendation
+    """
+    
+    BATCH_SIZE = 5  # Process 3 candidates per LLM call
     
     @staticmethod
     async def evaluate_candidates(
@@ -32,391 +41,374 @@ class LLMJudge:
         candidates: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Add qualitative analysis to algorithmically-scored candidates.
-        Processes ALL candidates in batches of 5.
+        Evaluate all candidates using LLM.
+        
+        Args:
+            session: Database session
+            job: Job to match against
+            candidates: List of candidates with algorithmic scores from ensemble
+            
+        Returns:
+            List of candidates with added llm_analysis and final_score
         """
         logger.info("=" * 80)
-        logger.info("LLM QUALITATIVE ANALYSIS")
+        logger.info("LLM JUDGE: Starting Deep Evaluation")
         logger.info("=" * 80)
-        logger.info("Analyzing ALL %d candidates for '%s'", len(candidates), job.title)
-        logger.info("Processing in batches of 5 candidates per API call")
+        logger.info(f"Job: '{job.title}' (ID: {job.id})")
+        logger.info(f"Candidates to evaluate: {len(candidates)}")
+        logger.info(f"Batch size: {LLMJudge.BATCH_SIZE}")
+        logger.info(f"Expected API calls: {(len(candidates) + LLMJudge.BATCH_SIZE - 1) // LLMJudge.BATCH_SIZE}")
         logger.info("")
         
-        candidates_with_resumes = await LLMJudge._load_full_resumes(session, candidates)
-        job_requirements = LLMJudge._extract_job_requirements(job)
-        
-        logger.info("Job: %s (Min Experience: %s years)", 
-                   job_requirements["title"], 
-                   job_requirements.get("min_years", "N/A"))
-        logger.info("Must-Have Skills: %s", ", ".join(job_requirements.get("must_have_skills", [])[:5]))
+        # Step 1: Prepare job data
+        job_data = LLMJudge._prepare_job_data(job)
+        logger.info("✓ Job data prepared")
+        logger.info(f"  - Title: {job_data['title']}")
+        logger.info(f"  - Description length: {len(job_data['description'])} characters")
         logger.info("")
         
-        llm_analyses = await LLMJudge._call_llm_batched(job_requirements, candidates_with_resumes)
-        final_results = LLMJudge._add_qualitative_analysis(candidates, llm_analyses)
+        # Step 2: Load resume data for all candidates
+        logger.info("Loading resume data from database...")
+        candidates_with_data = await LLMJudge._load_resume_data(session, candidates)
+        logger.info(f"✓ Loaded {len(candidates_with_data)} resumes")
         
+        # Add rank to each candidate (1-indexed) - Important for LLM context
+        total_candidates = len(candidates_with_data)
+        for idx, candidate in enumerate(candidates_with_data, 1):
+            candidate["rank"] = idx
+            candidate["total_candidates"] = total_candidates
         logger.info("")
+        
+        # Step 3: Call LLM in batches
+        logger.info("Calling LLM for evaluation...")
+        logger.info("-" * 80)
+        evaluations = await LLMJudge._evaluate_in_batches(job_data, candidates_with_data)
+        logger.info("-" * 80)
+        logger.info(f"✓ LLM evaluation complete: {len(evaluations)} candidates evaluated")
+        logger.info("")
+        
+        # Step 4: Merge evaluations back into candidates
+        logger.info("Merging LLM evaluations with candidate data...")
+        final_results = LLMJudge._merge_evaluations(candidates, evaluations)
+        
+        # Sort by LLM final_score (descending)
+        final_results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+        
         logger.info("=" * 80)
-        logger.info("ANALYSIS COMPLETE")
-        logger.info(f"Processed: {len(final_results)} candidates")
-        logger.info(f"Top 5 Scores: {[r['final_score'] for r in final_results[:5]]}")
+        logger.info("LLM JUDGE: Evaluation Complete")
         logger.info("=" * 80)
+        logger.info(f"Total candidates: {len(final_results)}")
+        if final_results:
+            logger.info(f"Top 5 LLM scores: {[c.get('final_score', 0) for c in final_results[:5]]}")
+            logger.info(f"Recommendations breakdown:")
+            recommendations = {}
+            for c in final_results:
+                rec = c.get("llm_analysis", {}).get("recommendation", "unknown")
+                recommendations[rec] = recommendations.get(rec, 0) + 1
+            for rec, count in sorted(recommendations.items(), key=lambda x: x[1], reverse=True):
+                logger.info(f"  - {rec}: {count}")
+        logger.info("=" * 80)
+        logger.info("")
         
         return final_results
     
     @staticmethod
-    async def _load_full_resumes(
-        session: AsyncSession,
-        candidates: List[Dict]
-    ) -> List[Dict]:
-        """Load full resume text for qualitative analysis."""
-        logger.info("Loading full resume data for %d candidates...", len(candidates))
+    def _prepare_job_data(job: Job) -> Dict[str, Any]:
+        """
+        Prepare simple job data for LLM (raw text only).
         
+        Returns:
+            {
+                "title": str,
+                "description": str  # Combined description + free_text
+            }
+        """
+        logger.debug(f"Preparing job data for job_id={job.id}")
+        
+        # Combine description and free_text
+        full_description = job.job_description or ""
+        if job.free_text:
+            full_description += "\n\n" + job.free_text
+        
+        return {
+            "title": job.title,
+            "description": full_description.strip()
+        }
+    
+    @staticmethod
+    async def _load_resume_data(
+        session: AsyncSession,
+        candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Load resume data and convert to human-readable format.
+        
+        Returns:
+            List of candidates with added 'resume_text' field
+        """
         enriched = []
-        for candidate in candidates:
+        
+        for idx, candidate in enumerate(candidates, 1):
             resume_id = candidate["resume_id"]
-            resume: Resume = await session.get(Resume, resume_id)
             
+            # Load resume from DB
+            resume: Resume = await session.get(Resume, resume_id)
             if not resume:
-                logger.warning("Resume %s not found", resume_id)
+                logger.warning(f"  [{idx}/{len(candidates)}] Resume not found: {resume_id}")
                 continue
             
-            # Get full resume text
-            full_text = ""
-            extraction = resume.extraction_json or {}
-            
-            if extraction:
-                # Build structured text from extraction
-                parts = []
-                
-                # Personal info
-                person = extraction.get("person", {})
-                if person:
-                    parts.append(f"Name: {person.get('name', 'N/A')}")
-                
-                # Summary
-                summary = extraction.get("summary")
-                if summary:
-                    parts.append(f"\nSUMMARY:\n{summary}")
-                
-                # Experience
-                experiences = extraction.get("experience", [])
-                if experiences:
-                    parts.append("\n\nWORK EXPERIENCE:")
-                    for exp in experiences:
-                        if isinstance(exp, dict):
-                            company = exp.get("company", "Unknown")
-                            title = exp.get("title", "Unknown")
-                            duration = exp.get("duration", "")
-                            description = exp.get("description", "")
-                            parts.append(f"\n- {title} at {company} ({duration})")
-                            if description:
-                                parts.append(f"  {description}")
-                
-                # Skills
-                skills = extraction.get("skills", [])
-                if skills:
-                    skill_names = []
-                    for skill in skills:
-                        if isinstance(skill, dict):
-                            skill_names.append(skill.get("name", ""))
-                        elif isinstance(skill, str):
-                            skill_names.append(skill)
-                    parts.append(f"\n\nSKILLS:\n{', '.join(skill_names)}")
-                
-                # Education
-                education = extraction.get("education", [])
-                if education:
-                    parts.append("\n\nEDUCATION:")
-                    for edu in education:
-                        if isinstance(edu, dict):
-                            degree = edu.get("degree", "")
-                            institution = edu.get("institution", "")
-                            parts.append(f"\n- {degree} from {institution}")
-                
-                # Projects
-                projects = extraction.get("projects", [])
-                if projects:
-                    parts.append("\n\nPROJECTS:")
-                    for proj in projects:
-                        if isinstance(proj, dict):
-                            name = proj.get("name", "")
-                            description = proj.get("description", "")
-                            parts.append(f"\n- {name}: {description}")
-                
-                full_text = "\n".join(parts)
-            
-            # If no extraction, fall back to chunks
-            if not full_text:
-                logger.info("No extraction for resume %s, loading chunks...", str(resume_id)[:8])
-                chunks = await session.execute(
-                    select(ResumeChunk)
-                    .where(ResumeChunk.resume_id == resume_id)
-                    .order_by(ResumeChunk.section, ResumeChunk.chunk_index)
-                )
-                
-                chunk_texts = []
-                for chunk in chunks.scalars().all():
-                    chunk_texts.append(f"[{chunk.section.upper()}]\n{chunk.text}")
-                
-                full_text = "\n\n".join(chunk_texts)
-            
-            # Limit text size (max ~8000 chars for token limits)
-            if len(full_text) > 8000:
-                full_text = full_text[:8000] + "\n\n[... truncated for length ...]"
+            # Convert extraction_json to simple readable format
+            resume_text = LLMJudge._format_resume_text(resume.extraction_json or {})
             
             enriched.append({
                 **candidate,
-                "full_resume": full_text,
+                "resume_text": resume_text
             })
-            
-            logger.info("  Loaded resume for %s (%d chars)", 
-                       candidate["contact"].get("name", "Unknown"),
-                       len(full_text))
         
         return enriched
     
     @staticmethod
-    def _extract_job_requirements(job: Job) -> Dict:
-        """Extract job requirements for LLM context."""
-        analysis = job.analysis_json or {}
+    def _format_resume_text(extraction: Dict[str, Any]) -> str:
+        """
+        Convert extraction_json to simple readable text format.
+        """
+        lines = []
         
-        # Extract must-have skills
-        skills_dict = analysis.get("skills", {})
-        must_have = []
-        nice_to_have = []
-        if isinstance(skills_dict, dict):
-            must_have = skills_dict.get("must_have", [])
-            nice_to_have = skills_dict.get("nice_to_have", [])
+        # Name and contact
+        person = extraction.get("person", {})
+        if person.get("name"):
+            lines.append(f"NAME: {person['name']}")
         
-        # Extract tech stack
-        tech_stack = analysis.get("tech_stack", {})
-        tech_list = []
-        if isinstance(tech_stack, dict):
-            languages = tech_stack.get("languages", [])
-            frameworks = tech_stack.get("frameworks", [])
-            databases = tech_stack.get("databases", [])
-            tools = tech_stack.get("tools", [])
-            tech_list = {
-                "languages": languages,
-                "frameworks": frameworks,
-                "databases": databases,
-                "tools": tools,
-            }
+        # Years of experience
+        primary_years = extraction.get("primary_years")
+        if primary_years:
+            lines.append(f"EXPERIENCE: {primary_years} years")
         
-        # Extract experience requirements
-        experience = analysis.get("experience", {})
-        min_years = 0
-        if isinstance(experience, dict):
-            min_years = experience.get("years_min") or experience.get("min_years") or 0
-            if isinstance(min_years, str):
-                import re
-                match = re.search(r'(\d+)', min_years)
-                if match:
-                    min_years = int(match.group(1))
+        # Skills
+        skills = extraction.get("skills", [])
+        if skills:
+            skill_names = [s["name"] for s in skills if s.get("name")]
+            if skill_names:
+                lines.append(f"SKILLS: {', '.join(skill_names)}")
         
-        # Extract responsibilities
-        responsibilities = analysis.get("responsibilities", [])
+        # Education
+        education = extraction.get("education", [])
+        if education:
+            lines.append("\nEDUCATION:")
+            for edu in education:
+                degree = edu.get("degree", "")
+                field = edu.get("field", "")
+                institution = edu.get("institution", "")
+                edu_line = f"  - {degree} in {field}" if degree and field else f"  - {field or degree or institution}"
+                if institution and institution not in edu_line:
+                    edu_line += f" from {institution}"
+                lines.append(edu_line)
         
-        # Extract qualifications
-        qualifications = analysis.get("qualifications", {})
+        # Work experience
+        experience = extraction.get("experience", [])
+        if experience:
+            lines.append("\nWORK EXPERIENCE:")
+            for exp in experience:
+                title = exp.get("title", "")
+                company = exp.get("company", "")
+                start = exp.get("start_date", "")
+                end = exp.get("end_date", "Present")
+                
+                exp_header = f"  • {title} at {company}"
+                if start:
+                    exp_header += f" ({start} - {end})"
+                lines.append(exp_header)
+                
+                # Technologies
+                tech = exp.get("tech", [])
+                if tech:
+                    lines.append(f"    Tech: {', '.join(tech)}")
+                
+                # Bullets
+                bullets = exp.get("bullets", [])
+                for bullet in bullets:
+                    lines.append(f"    - {bullet}")
         
-        return {
-            "title": job.title,
-            "description": job.job_description or "",  # FULL description
-            "free_text": job.free_text or "",  # Additional context
-            "must_have_skills": must_have,
-            "nice_to_have_skills": nice_to_have,
-            "tech_stack": tech_list,
-            "min_years": min_years,
-            "responsibilities": responsibilities,
-            "qualifications": qualifications,
-            "full_analysis": analysis,  # Complete AI analysis for context
-        }
+        return "\n".join(lines)
     
     @staticmethod
-    async def _call_llm_batched(
-        job_requirements: Dict,
-        candidates: List[Dict]
-    ) -> List[Dict]:
-        """Call LLM for qualitative analysis in batches of 5."""
-        BATCH_SIZE = 5
-        total_candidates = len(candidates)
-        num_batches = (total_candidates + BATCH_SIZE - 1) // BATCH_SIZE  # Ceiling division
+    async def _evaluate_in_batches(
+        job_data: Dict[str, Any],
+        candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Call LLM in batches of BATCH_SIZE candidates.
         
-        # Determine which LLM provider is being used
-        llm_provider = "Ollama" if settings.LLM_CHAT_MODEL else "OpenAI"
-        llm_model = settings.LLM_CHAT_MODEL or settings.OPENAI_MODEL
-        logger.info(f"🤖 Calling {llm_provider} ({llm_model}) for deep evaluation...")
-        logger.info(f"Total candidates: {total_candidates}")
-        logger.info(f"Batch size: {BATCH_SIZE}")
-        logger.info(f"Number of API calls: {num_batches}")
-        logger.info("")
-        
+        Returns:
+            List of evaluations: [{resume_id, final_score, strengths, concerns, recommendation}, ...]
+        """
         all_evaluations = []
+        num_batches = (len(candidates) + LLMJudge.BATCH_SIZE - 1) // LLMJudge.BATCH_SIZE
         
-        for batch_num in range(num_batches):
-            start_idx = batch_num * BATCH_SIZE
-            end_idx = min(start_idx + BATCH_SIZE, total_candidates)
-            batch_candidates = candidates[start_idx:end_idx]
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * LLMJudge.BATCH_SIZE
+            end_idx = min(start_idx + LLMJudge.BATCH_SIZE, len(candidates))
+            batch = candidates[start_idx:end_idx]
             
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info(f"BATCH {batch_num + 1}/{num_batches}: Evaluating candidates {start_idx + 1}-{end_idx}")
-            logger.info("=" * 60)
-            
-            # Evaluate this batch
-            batch_evaluations = await LLMJudge._call_llm_single_batch(
-                job_requirements, 
-                batch_candidates,
-                batch_num + 1
+            # Call LLM for this batch
+            batch_evaluations = await LLMJudge._call_llm_for_batch(
+                job_data=job_data,
+                candidates=batch,
+                batch_num=batch_idx + 1
             )
             
             all_evaluations.extend(batch_evaluations)
-            
-            logger.info(f"Batch {batch_num + 1}/{num_batches} completed: {len(batch_evaluations)} evaluations received")
         
-        logger.info("")
-        logger.info(f"All {num_batches} batches completed. Total evaluations: {len(all_evaluations)}")
-        logger.info("")
         return all_evaluations
     
     @staticmethod
-    async def _call_llm_single_batch(
-        job_requirements: Dict,
-        candidates: List[Dict],
+    async def _call_llm_for_batch(
+        job_data: Dict[str, Any],
+        candidates: List[Dict[str, Any]],
         batch_num: int
-    ) -> List[Dict]:
-        """Call LLM for qualitative analysis of a batch."""
+    ) -> List[Dict[str, Any]]:
+        """
+        Call LLM for a single batch of candidates.
+        
+        Returns:
+            List of evaluations for this batch
+        """
+        # Build system prompt
         system_prompt = CANDIDATE_EVALUATION_PROMPT
         
-        def convert_to_json_serializable(obj):
-            """Convert numpy types to native Python types for JSON serialization"""
-            import numpy as np
-            if isinstance(obj, (np.integer, np.int32, np.int64)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float32, np.float64)):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, dict):
-                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_json_serializable(item) for item in obj]
-            elif isinstance(obj, set):
-                return sorted(list(obj))
-            return obj
-
+        # Build user prompt with job + candidates
         user_prompt = {
-            "job": job_requirements,
-            "candidates": [
-                {
-                    "resume_id": str(c["resume_id"]),
-                    "candidate_name": c["contact"].get("name", "Unknown"),
-                    "contact_email": c["contact"].get("email"),
-                    "experience_years": float(c["contact"].get("experience_years")) if c["contact"].get("experience_years") is not None else "unknown",
-                    "skills": sorted(list(c["contact"].get("skills", []))),
-                    "full_resume": c["full_resume"],
-                    "algorithmic_scores": {
-                        "overall": int(c.get("rag_score", 0)),
-                        "skills": int(c.get("breakdown", {}).get("skills", 0)),
-                        "experience": int(c.get("breakdown", {}).get("experience", 0)),
-                        "title": int(c.get("breakdown", {}).get("title", 0)),
-                        "rag_similarity": int(c.get("breakdown", {}).get("rag_similarity", 0)),
-                    },
-                    "skills_detail": convert_to_json_serializable(c.get("skills_detail", {})),
-                    "experience_detail": convert_to_json_serializable(c.get("experience_detail", {})),
-                    "title_detail": convert_to_json_serializable(c.get("title_detail", {})),
-                }
-                for c in candidates
-            ]
+            "job": job_data,
+            "candidates": []
         }
         
-        # Log candidate experience years for debugging
-        logger.info("Candidates in this batch:")
-        for i, cand in enumerate(user_prompt["candidates"], 1):
-            exp_years = cand.get("experience_years")
-            exp_str = f"{exp_years} years" if isinstance(exp_years, (int, float)) else str(exp_years)
-            logger.info("  %d. %s - Experience: %s", i, cand.get("candidate_name", "Unknown"), exp_str)
+        for candidate in candidates:
+            user_prompt["candidates"].append({
+                "resume_id": str(candidate["resume_id"]),
+                "algorithmic_score": candidate.get("rag_score", 0),
+                "algorithmic_rank": candidate.get("rank", 0),  # Position in ranked list
+                "resume": candidate.get("resume_text", "")
+            })
         
         try:
-            # Use LLM client (synchronous call - run in thread pool to keep async)
+            # Prepare messages
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False, indent=2)},
+                {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False, indent=2)}
             ]
             
-            # Run synchronous LLM call in thread pool to avoid blocking
+            # Call LLM (synchronous call wrapped in executor)
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
-                None, 
-                partial(default_llm_client.chat_json, messages, timeout=120)
+                None,
+                partial(default_llm_client.chat_json, messages, timeout=180)
             )
+            
+            # Parse response
             content_dict = response.data
-            
-            logger.info(f"Batch {batch_num} LLM response received")
-            
-            # content_dict is already a dict from chat_json
             evaluations = content_dict.get("evaluations", [])
             
-            logger.info(f"Batch {batch_num} parsed: {len(evaluations)} evaluations")
-            logger.info("")
+            # Compact summary table
+            logger.info(f"\n📊 Batch {batch_num} Results:")
+            logger.info("┌─────────────────────────┬───────┬────────────────────┐")
+            logger.info("│ Candidate               │ Score │ Recommendation     │")
+            logger.info("├─────────────────────────┼───────┼────────────────────┤")
             
-            # Log summary
             for ev in evaluations:
-                resume_id_short = str(ev.get("resume_id", "unknown"))[:8]
-                logger.info(f"  • {resume_id_short}: Score={ev.get('llm_score', 0)}, Verdict={ev.get('verdict', 'unknown')}")
+                # Get candidate info
+                resume_id = ev.get("resume_id", "unknown")
+                final_score = ev.get("final_score", 0)
+                recommendation = ev.get("recommendation", "unknown")
+                
+                # Find candidate name from input
+                candidate_name = "Unknown"
+                for cand in candidates:
+                    if str(cand["resume_id"]) == resume_id:
+                        resume_text = cand.get("resume_text", "")
+                        if resume_text.startswith("NAME: "):
+                            candidate_name = resume_text.split("\n")[0].replace("NAME: ", "")
+                        break
+                
+                # Truncate name if too long
+                name_display = candidate_name[:23] if len(candidate_name) <= 23 else candidate_name[:20] + "..."
+                rec_display = recommendation[:18] if len(recommendation) <= 18 else recommendation[:15] + "..."
+                
+                logger.info(f"│ {name_display:<23} │ {final_score:>5} │ {rec_display:<18} │")
+            
+            logger.info("└─────────────────────────┴───────┴────────────────────┘\n")
+            
+            # Validate: ensure we got evaluations for all candidates
+            if len(evaluations) != len(candidates):
+                logger.warning(f"⚠️  Expected {len(candidates)} evaluations, got {len(evaluations)}")
             
             return evaluations
             
         except Exception as e:
-            logger.error(f"Batch {batch_num} LLM call failed: {str(e)}", exc_info=True)
-            return []
+            logger.error(f"  ❌ LLM call failed for batch {batch_num}: {e}", exc_info=True)
+            
+            # Return empty evaluations with zero scores as fallback
+            fallback_evaluations = []
+            for candidate in candidates:
+                fallback_evaluations.append({
+                    "resume_id": str(candidate["resume_id"]),
+                    "final_score": 0,
+                    "strengths": "LLM evaluation failed - could not analyze",
+                    "concerns": "System error during evaluation",
+                    "recommendation": "pass"
+                })
+            
+            return fallback_evaluations
     
     @staticmethod
-    def _add_qualitative_analysis(
-        candidates: List[Dict],
-        llm_analyses: List[Dict]
-    ) -> List[Dict]:
-        """Add LLM qualitative insights while keeping algorithmic scores."""
-        logger.info("Adding qualitative analysis to candidates...")
+    def _merge_evaluations(
+        candidates: List[Dict[str, Any]],
+        evaluations: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Merge LLM evaluations back into candidate dictionaries.
         
-        llm_map = {ev["resume_id"]: ev for ev in llm_analyses}
+        Returns:
+            List of candidates with llm_analysis and final_score
+        """
+        # Build lookup map: resume_id -> evaluation
+        eval_map = {}
+        for ev in evaluations:
+            resume_id_str = ev.get("resume_id")
+            if resume_id_str:
+                # Handle both string and UUID
+                try:
+                    eval_map[str(resume_id_str)] = ev
+                except:
+                    pass
         
         results = []
         for candidate in candidates:
             resume_id = str(candidate["resume_id"])
-            algo_score = candidate["rag_score"]
+            evaluation = eval_map.get(resume_id)
             
-            llm_analysis = llm_map.get(resume_id)
-            
-            if llm_analysis:
-                results.append({
-                    **candidate,
-                    "final_score": algo_score,
-                    "llm_analysis": {
-                        "strengths": llm_analysis.get("strengths", ""),
-                        "concerns": llm_analysis.get("concerns", ""),
-                        "recommendation": llm_analysis.get("recommendation", ""),
-                    }
-                })
+            if evaluation:
+                # LLM evaluation found - use LLM score as final
+                final_score = evaluation.get("final_score", 0)
                 
-                logger.info("  %s: Score=%d, Recommendation=%s",
-                           candidate["contact"].get("name", "Unknown")[:20],
-                           algo_score,
-                           llm_analysis.get("recommendation", "unknown"))
-            else:
-                logger.warning("  %s: No LLM analysis",
-                             candidate["contact"].get("name", "Unknown"))
                 results.append({
                     **candidate,
-                    "final_score": algo_score,
+                    "final_score": final_score,
                     "llm_analysis": {
-                        "strengths": "",
-                        "concerns": "No qualitative analysis available.",
-                        "recommendation": "unknown",
+                        "strengths": evaluation.get("strengths", ""),
+                        "concerns": evaluation.get("concerns", ""),
+                        "recommendation": evaluation.get("recommendation", "pass")
                     }
                 })
-        
-        results.sort(key=lambda x: x["final_score"], reverse=True)
+            else:
+                # No LLM evaluation (error case) - use algorithmic score
+                results.append({
+                    **candidate,
+                    "final_score": candidate.get("rag_score", 0),
+                    "llm_analysis": {
+                        "strengths": "LLM evaluation not available",
+                        "concerns": "Could not complete LLM analysis",
+                        "recommendation": "pass"
+                    }
+                })
         
         return results

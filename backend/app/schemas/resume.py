@@ -16,11 +16,18 @@ from pydantic import BaseModel, Field
 
 
 class SkillItem(BaseModel):
-    """Skill with source tracking for weighted matching."""
+    """Skill with source tracking for weighted matching.
+
+    Simplified weighting model (binary groups):
+    - Experience skill (appears in work experience context): weight = 1.0, source typically "work_experience".
+    - General skill (projects/education/deterministic/list/etc.): weight = 0.6, source varies ("projects", "education", "skills_list", "deterministic", etc.).
+
+    Consumers should branch only by weight (==1.0 => experience, else general). Legacy sources retained for backward compatibility.
+    """
     name: str
-    source: str = "skills_list"  # "work_experience", "projects", "education", "skills_list"
-    weight: float = Field(default=1.0, ge=0.0, le=1.0)  # 1.0=work, 0.8=projects, 0.6=education, 0.4=list
-    category: Optional[str] = None  # Optional: "language", "framework", "tool", etc.
+    source: str = "skills_list"  # legacy values preserved; grouping now by weight only
+    weight: float = Field(default=0.6, ge=0.0, le=1.0)  # 1.0=experience, 0.6=general
+    category: Optional[str] = None  # Optional classification (language/framework/tool/etc.)
 
 
 class ResumeSummary(BaseModel):

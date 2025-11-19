@@ -6,7 +6,7 @@
 import { useMemo, type ReactElement } from 'react';
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone';
 
-import type { ResumeDetail } from '../../../types/resume';
+import type { ResumeDetail, SkillItem } from '../../../types/resume';
 import styles from './ResumeDetailPanel.module.css';
 
 type ResumeDetailPanelProps = {
@@ -75,7 +75,7 @@ export const ResumeDetailPanel = ({
 
   // Group skills by source
   const skillsBySource = useMemo(() => {
-    const grouped = new Map<string, typeof resume.skills>();
+    const grouped = new Map<string, SkillItem[]>();
     
     resume?.skills.forEach((skill) => {
       const source = skill.source || 'other';

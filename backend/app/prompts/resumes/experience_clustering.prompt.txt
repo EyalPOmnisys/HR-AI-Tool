@@ -45,7 +45,7 @@ Return ONLY valid JSON matching this exact structure:
 **CATEGORIZATION RULES:**
 
 **TECH Category:**
-⚠️ CRITICAL: This is the PRIMARY category for technical professionals - be GENEROUS and ACCURATE!
+⚠️ CRITICAL: This is the PRIMARY category for technical professionals.
 
 Include ANY role that involves:
 - Software development, engineering, programming (ANY level: junior to senior)
@@ -53,23 +53,30 @@ Include ANY role that involves:
 - Data science, ML engineering, AI development
 - QA, test automation, security engineering, cybersecurity
 - Technical architecture, technical leadership, CTO
-- Product management (if heavily technical)
-- Research & development (if tech-focused)
-- Technical project management, technical program management
-- Full stack, frontend, backend, mobile development
-- UAV/drone engineering, GIS development, mission-critical systems
 
 **PRIMARY INDICATORS (ANY ONE is sufficient for TECH classification):**
 ✅ Job title contains: "engineer", "developer", "architect", "devops", "programmer", "coder", "software", "tech lead", "data scientist", "ML engineer", "AI", "full stack", "backend", "frontend"
 ✅ Tech stack with 2+ technologies mentioned (Python, Java, React, Node.js, AWS, Docker, etc.)
 ✅ Technical responsibilities described ("developed", "built", "implemented", "architected", "coded", "designed APIs", "deployed")
-✅ Technical tools/platforms used (Git, Jenkins, CI/CD, Kubernetes, databases, frameworks)
+
+**STRICT EXCLUSIONS (DO NOT CLASSIFY AS TECH):**
+❌ **Military/Defense "Technician" or "Operator" roles:**
+   - Titles like "Technician", "System Operator", "Controller", "Administrator" in a military context are **MILITARY**, NOT TECH, unless they explicitly involve *writing code* (Python, C++, Java) or *building software*.
+   - Using a complex system (e.g., "Air Defense System", "Control Room") is NOT Tech experience.
+   - "Technician" is NOT "Engineer".
+❌ **Academic Roles:**
+   - "Student", "Teaching Assistant", "Research Assistant" (unless full-time dev), "Tutor".
+   - "Projects" done during university (e.g., "Data Projects", "Final Project") are **NOT** professional experience. Exclude them completely or put in OTHER.
+❌ **Generic Support:**
+   - "Help Desk", "IT Support" (unless it involves scripting/DevOps).
 
 **SPECIAL RULE FOR MILITARY/DEFENSE:**
 If a military/defense role has ANY technical indicators above, classify as TECH, NOT MILITARY.
-Example: "Software Engineer at Unit 8200" → TECH (not MILITARY)
-Example: "Cybersecurity Engineer at OFEK 324 IAF" → TECH (not MILITARY)
-Example: "Command and Control System Developer" → TECH (not MILITARY)
+**BUT BE CAREFUL:** Only classify as TECH if it is a **Development/Engineering** role.
+- "Software Engineer at Unit 8200" → TECH
+- "Cybersecurity Researcher" → TECH
+- "Technician of Air Defense System" → MILITARY (User/Maintainer, not Developer)
+- "Air Traffic Controller" → MILITARY
 
 **When in doubt between TECH and OTHER categories:**
 → If there's ANY code, development, or engineering work mentioned → Choose TECH
@@ -79,10 +86,7 @@ Example: "Command and Control System Developer" → TECH (not MILITARY)
 Include ONLY formal military/defense service:
 - Mandatory or professional military service
 - Defense contractors/units
-- Intelligence or cybersecurity in military context
-
-Special rule: If a military role is clearly technical (e.g., "Software Developer - Unit 8200"), 
-prefer TECH category over MILITARY
+- Intelligence or cybersecurity in military context (IF NOT clearly Software/Data Engineering)
 
 **HOSPITALITY Category:**
 Include roles in:
@@ -92,15 +96,16 @@ Include roles in:
 
 **OTHER Category:**
 Everything else: sales, marketing, finance, admin, education, retail, etc.
+**Include Academic/Student roles here if they must be kept.**
 
 **CRITICAL RULES:**
 
 1. **Inclusion Criteria:**
-   ✅ Include: Formal paid employment at companies, organizations, startups, military units
+   ✅ Include: Formal paid employment at companies, organizations, startups
    ✅ Include: Paid internships with clear employment status
-   ❌ Exclude: Volunteer work, personal projects, academic projects, hackathons, hobby projects
-   ❌ Exclude: Unpaid internships or student exercises
+   ❌ Exclude: Volunteer work, personal projects, academic projects, hackathons
    ❌ Exclude: Education (even if it mentions technical coursework)
+   ❌ Exclude: Non-tech roles when categorizing tech experience
 
 2. **Date Handling:**
    - Parse dates accurately: "2020", "Jan 2020", "2020-01", "2020-2022"

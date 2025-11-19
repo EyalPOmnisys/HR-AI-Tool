@@ -2,7 +2,7 @@ import { useState } from 'react'
 import styles from './Dashboard.module.css'
 import type { MatchRunResponse } from '../../../types/match'
 import type { ApiJob } from '../../../types/job'
-import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp } from 'react-icons/fi'
+import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp, FiHelpCircle, FiX } from 'react-icons/fi'
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
 
 type Props = {
@@ -11,6 +11,28 @@ type Props = {
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
+// Helper: Get stability badge configuration
+function getStabilityBadge(score: number | undefined, verdict: string | undefined): { emoji: string; label: string; color: string; bgColor: string } {
+  if (!score) {
+    return { emoji: '❓', label: 'Unknown', color: '#6b7280', bgColor: '#f3f4f6' }
+  }
+  
+  // Based on score ranges from employment_stability_scorer.py
+  if (score >= 90) {
+    return { emoji: '⭐', label: 'Excellent', color: '#059669', bgColor: '#d1fae5' } // Green
+  } else if (score >= 80) {
+    return { emoji: '✅', label: 'Good', color: '#0891b2', bgColor: '#cffafe' } // Cyan
+  } else if (score >= 70) {
+    return { emoji: '👍', label: 'OK', color: '#2563eb', bgColor: '#dbeafe' } // Blue
+  } else if (score >= 60) {
+    return { emoji: '⚠️', label: 'Moderate', color: '#d97706', bgColor: '#fef3c7' } // Amber
+  } else if (score >= 50) {
+    return { emoji: '⚡', label: 'Concern', color: '#dc2626', bgColor: '#fee2e2' } // Red
+  } else {
+    return { emoji: '🚩', label: 'High Risk', color: '#991b1b', bgColor: '#fecaca' } // Dark Red
+  }
+}
 
 // Helper: score color based on percentage
 function getScoreColor(score: number): string {
@@ -81,6 +103,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
   const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
   const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
+  const [showJobDescription, setShowJobDescription] = useState(false);
   
   const avgScore =
     candidates.length > 0
@@ -120,7 +143,269 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
       {/* Job Title Header */}
       {selectedJob && (
         <div className={styles.header}>
-          <h2 className={styles.jobTitle}>{selectedJob.title}</h2>
+          <h2 className={styles.jobTitle}>
+            {selectedJob.title}
+            {selectedJob.job_description && (
+              <button
+                className={styles.jobInfoButton}
+                onClick={() => setShowJobDescription(!showJobDescription)}
+                aria-label="Show job description"
+              >
+                <FiHelpCircle />
+              </button>
+            )}
+          </h2>
+          {showJobDescription && selectedJob.job_description && (
+            <div className={styles.jobDescriptionModal} onClick={() => setShowJobDescription(false)}>
+              <div className={styles.jobDescriptionContent} onClick={(e) => e.stopPropagation()}>
+                <header className={styles.jobDescriptionHeader}>
+                  <div className={styles.headerContent}>
+                    <div className={styles.iconWrapper}>
+                      <span>{selectedJob.icon || '💼'}</span>
+                    </div>
+                    <div className={styles.titleContent}>
+                      <h3>{selectedJob.title}</h3>
+                      {selectedJob.analysis_json?.organization && (
+                        <p className={styles.organization}>{selectedJob.analysis_json.organization}</p>
+                      )}
+                      <p className={styles.meta}>Full Job Description</p>
+                    </div>
+                  </div>
+                  <button
+                    className={styles.closeButton}
+                    onClick={() => setShowJobDescription(false)}
+                    aria-label="Close"
+                  >
+                    <FiX />
+                  </button>
+                </header>
+                <div className={styles.jobDescriptionBody}>
+                  {selectedJob.analysis_json ? (
+                    <>
+                      {/* Summary */}
+                      {selectedJob.analysis_json.summary && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Summary</h4>
+                          <p className={styles.description}>{selectedJob.analysis_json.summary}</p>
+                        </section>
+                      )}
+
+                      {/* Experience & Salary */}
+                      {(selectedJob.analysis_json.experience || selectedJob.analysis_json.salary_range) && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Position Details</h4>
+                          <div className={styles.metaInfo}>
+                            {selectedJob.analysis_json.experience && (selectedJob.analysis_json.experience.years_min || selectedJob.analysis_json.experience.years_max) && (
+                              <div className={styles.metaItem}>
+                                <span className={styles.metaIcon}>💼</span>
+                                <span className={styles.metaText}>
+                                  Experience: {selectedJob.analysis_json.experience.years_min && selectedJob.analysis_json.experience.years_max
+                                    ? `${selectedJob.analysis_json.experience.years_min}-${selectedJob.analysis_json.experience.years_max} years`
+                                    : selectedJob.analysis_json.experience.years_min
+                                    ? `${selectedJob.analysis_json.experience.years_min}+ years`
+                                    : `Up to ${selectedJob.analysis_json.experience.years_max} years`
+                                  }
+                                </span>
+                              </div>
+                            )}
+                            {selectedJob.analysis_json.salary_range && (selectedJob.analysis_json.salary_range.min || selectedJob.analysis_json.salary_range.max) && (
+                              <div className={styles.metaItem}>
+                                <span className={styles.metaIcon}>💰</span>
+                                <span className={styles.metaText}>
+                                  Salary: {selectedJob.analysis_json.salary_range.min && selectedJob.analysis_json.salary_range.max
+                                    ? `${selectedJob.analysis_json.salary_range.currency} ${selectedJob.analysis_json.salary_range.min.toLocaleString()} - ${selectedJob.analysis_json.salary_range.max.toLocaleString()}`
+                                    : selectedJob.analysis_json.salary_range.min
+                                    ? `${selectedJob.analysis_json.salary_range.currency} ${selectedJob.analysis_json.salary_range.min.toLocaleString()}+`
+                                    : `Up to ${selectedJob.analysis_json.salary_range.currency} ${selectedJob.analysis_json.salary_range.max?.toLocaleString()}`
+                                  }
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Locations */}
+                      {selectedJob.analysis_json.locations && selectedJob.analysis_json.locations.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Locations</h4>
+                          <div className={styles.locations}>
+                            {selectedJob.analysis_json.locations.map((loc, idx) => (
+                              <span key={idx} className={styles.locationBadge}>
+                                📍 {loc}
+                              </span>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Requirements */}
+                      {selectedJob.analysis_json.requirements && selectedJob.analysis_json.requirements.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Key Requirements</h4>
+                          <ul className={styles.list}>
+                            {selectedJob.analysis_json.requirements.map((req, idx) => (
+                              <li key={idx} className={styles.listItem}>
+                                {req}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      )}
+
+                      {/* Responsibilities */}
+                      {selectedJob.analysis_json.responsibilities && selectedJob.analysis_json.responsibilities.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Responsibilities</h4>
+                          <ul className={styles.list}>
+                            {selectedJob.analysis_json.responsibilities.map((resp, idx) => (
+                              <li key={idx} className={styles.listItem}>
+                                {resp}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      )}
+
+                      {/* Must Have Skills */}
+                      {selectedJob.analysis_json.skills?.must_have && selectedJob.analysis_json.skills.must_have.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Must Have Skills</h4>
+                          <div className={styles.skillsList}>
+                            {selectedJob.analysis_json.skills.must_have.map((skill, idx) => (
+                              <span key={idx} className={styles.skillBadge}>
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Nice to Have Skills */}
+                      {selectedJob.analysis_json.skills?.nice_to_have && selectedJob.analysis_json.skills.nice_to_have.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Nice to Have Skills</h4>
+                          <div className={styles.skillsList}>
+                            {selectedJob.analysis_json.skills.nice_to_have.map((skill, idx) => (
+                              <span key={idx} className={styles.skillBadgeOptional}>
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Tech Stack */}
+                      {selectedJob.analysis_json.tech_stack && (
+                        (selectedJob.analysis_json.tech_stack.languages?.length > 0 ||
+                         selectedJob.analysis_json.tech_stack.frameworks?.length > 0 ||
+                         selectedJob.analysis_json.tech_stack.databases?.length > 0 ||
+                         selectedJob.analysis_json.tech_stack.tools?.length > 0) && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Tech Stack</h4>
+                          <div className={styles.techStackContainer}>
+                            {selectedJob.analysis_json.tech_stack.languages && selectedJob.analysis_json.tech_stack.languages.length > 0 && (
+                              <div className={styles.techCategory}>
+                                <div className={styles.techCategoryLabel}>Languages</div>
+                                <div className={styles.techList}>
+                                  {selectedJob.analysis_json.tech_stack.languages.map((tech, idx) => (
+                                    <span key={idx} className={styles.techBadge}>
+                                      {tech}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {selectedJob.analysis_json.tech_stack.frameworks && selectedJob.analysis_json.tech_stack.frameworks.length > 0 && (
+                              <div className={styles.techCategory}>
+                                <div className={styles.techCategoryLabel}>Frameworks</div>
+                                <div className={styles.techList}>
+                                  {selectedJob.analysis_json.tech_stack.frameworks.map((tech, idx) => (
+                                    <span key={idx} className={styles.techBadge}>
+                                      {tech}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {selectedJob.analysis_json.tech_stack.databases && selectedJob.analysis_json.tech_stack.databases.length > 0 && (
+                              <div className={styles.techCategory}>
+                                <div className={styles.techCategoryLabel}>Databases</div>
+                                <div className={styles.techList}>
+                                  {selectedJob.analysis_json.tech_stack.databases.map((tech, idx) => (
+                                    <span key={idx} className={styles.techBadge}>
+                                      {tech}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {selectedJob.analysis_json.tech_stack.tools && selectedJob.analysis_json.tech_stack.tools.length > 0 && (
+                              <div className={styles.techCategory}>
+                                <div className={styles.techCategoryLabel}>Tools</div>
+                                <div className={styles.techList}>
+                                  {selectedJob.analysis_json.tech_stack.tools.map((tech, idx) => (
+                                    <span key={idx} className={styles.techBadge}>
+                                      {tech}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                        )
+                      )}
+
+                      {/* Education */}
+                      {selectedJob.analysis_json.education && selectedJob.analysis_json.education.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Education Requirements</h4>
+                          <ul className={styles.list}>
+                            {selectedJob.analysis_json.education.map((edu, idx) => (
+                              <li key={idx} className={styles.listItemBenefit}>
+                                {edu}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      )}
+
+                      {/* Human Languages */}
+                      {selectedJob.analysis_json.languages && selectedJob.analysis_json.languages.length > 0 && (
+                        <section className={styles.section}>
+                          <h4 className={styles.sectionTitle}>Language Requirements</h4>
+                          <div className={styles.languagesList}>
+                            {selectedJob.analysis_json.languages.map((lang, idx) => (
+                              <div key={idx} className={styles.languageItem}>
+                                <span className={styles.languageName}>{lang.name}</span>
+                                {lang.level && (
+                                  <span className={styles.languageLevel}>
+                                    {lang.level.charAt(0).toUpperCase() + lang.level.slice(1)}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Original Description */}
+                      <section className={styles.section}>
+                        <h4 className={styles.sectionTitle}>Original Description</h4>
+                        <p className={styles.description}>{selectedJob.job_description}</p>
+                      </section>
+                    </>
+                  ) : (
+                    <section className={styles.section}>
+                      <h4 className={styles.sectionTitle}>Description</h4>
+                      <p className={styles.description}>{selectedJob.job_description}</p>
+                    </section>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -136,7 +421,9 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
               <tr>
                 <th>🎯 Match</th>
                 <th>👤 Candidate</th>
+                <th>💼 Title</th>
                 <th>📅 Experience</th>
+                <th>🏢 Stability</th>
                 <th>💪 Strengths</th>
                 <th>⚠️ Concerns</th>
                 <th>📝 Recommendation</th>
@@ -164,7 +451,32 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                         {candidate.candidate || 'Unknown'}
                       </span>
                     </td>
-                    <td>{candidate.experience || '—'}</td>
+                    <td>{candidate.title || '—'}</td>
+                    <td>{candidate.experience || '0 yrs'}</td>
+                    <td>
+                      {candidate.stability_score !== undefined ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                          <div
+                            className={styles.stabilityBadge}
+                            style={{
+                              backgroundColor: getStabilityBadge(candidate.stability_score, candidate.stability_verdict).bgColor,
+                              color: getStabilityBadge(candidate.stability_score, candidate.stability_verdict).color,
+                            }}
+                            title={`Employment Stability: ${candidate.stability_score}%`}
+                          >
+                            {getStabilityBadge(candidate.stability_score, candidate.stability_verdict).emoji}
+                            <span style={{ marginLeft: '4px', fontSize: '11px', fontWeight: 600 }}>
+                              {getStabilityBadge(candidate.stability_score, candidate.stability_verdict).label}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
+                            {candidate.stability_score}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#999' }}>—</span>
+                      )}
+                    </td>
                     <td className={`${styles.aiInsightCell} ${expandedStrengths.has(candidate.resume_id) ? styles.expanded : ''}`}>
                       {candidate.llm_strengths ? (
                         <div className={styles.aiInsightWrapper}>
@@ -287,7 +599,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={9} className={styles.resumeCell}>
+                      <td colSpan={10} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <iframe
                             src={`${API_URL}${candidate.resume_url}`}

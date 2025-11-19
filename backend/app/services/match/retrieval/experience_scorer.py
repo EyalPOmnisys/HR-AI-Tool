@@ -12,26 +12,20 @@ def calculate_experience_match(
     """
     Calculate experience match score with proximity preference (0-1 scale).
     
-    Strategy: Prefer candidates CLOSE to the requirement, not just "more is better".
+    Strategy: Prefer candidates CLOSE to the requirement.
     
-    Scoring logic:
-    - Significantly under-qualified (< 80% of required): Proportional score (0.0-0.8)
-    - Slightly under-qualified (80%-100% of required): 0.75-1.0
-    - Perfect range (100%-200% of required): 1.0
-    - Moderately over-qualified (200%-300%): 1.0 → 0.7 (linear decay)
-    - Significantly over-qualified (300%+): 0.7 → 0.5 (gentle decay)
-    
-    Examples:
-    - Required: 2 years
-      - 1.0 years → 0.5 (significantly under)
-      - 1.7 years → 0.88 (slightly under)
-      - 2.0 years → 1.0 (perfect)
-      - 3.0 years → 1.0 (perfect range)
-      - 5.0 years → 0.85 (moderately over)
-      - 10 years → 0.6 (significantly over)
+    Scoring logic (HR Perspective):
+    - Under-qualified:
+        - < 50% of required: Not relevant (Score ~0.0-0.2)
+        - 50%-100% of required: Linear climb (e.g. 75% -> 0.6 "problematic but ok")
+    - Over-qualified:
+        - +0 to +1 years: Perfect match (1.0)
+        - > +1 years: Decay based on seniority.
+          - A senior (7 years) won't take a junior job (4 years).
+          - Decay is gentler for higher required years.
     
     Args:
-        candidate_years: Candidate's years of experience (primary/tech years)
+        candidate_years: Candidate's years of experience
         required_years: Minimum years required by job
         
     Returns:
@@ -48,30 +42,51 @@ def calculate_experience_match(
     resume_years = float(candidate_years)
     job_min_years = float(required_years)
     
-    # Significantly under-qualified (< 80%)
-    if resume_years < job_min_years * 0.8:
-        return resume_years / job_min_years  # Proportional: 0.0 → 0.8
-    
-    # Slightly under-qualified (80% - 100%)
-    elif resume_years < job_min_years:
-        # Linear interpolation: 0.75 → 1.0
-        return 0.75 + (0.25 * (resume_years / job_min_years))
-    
-    # Perfect range (100% - 200%)
-    elif resume_years <= job_min_years * 2:
-        return 1.0
-    
-    # Moderately over-qualified (200% - 300%)
-    elif resume_years <= job_min_years * 3:
-        # Linear decay: 1.0 → 0.7
-        excess_ratio = (resume_years - job_min_years * 2) / job_min_years
-        return 1.0 - (excess_ratio * 0.3)
-    
-    # Significantly over-qualified (300%+)
+    # Under-qualified
+    if resume_years < job_min_years:
+        ratio = resume_years / job_min_years
+        if ratio < 0.5:
+            # "2 years under (for 4) is not relevant" -> < 50% is very low
+            return 0.05
+        else:
+            # Map 0.5 -> 0.2
+            # Map 1.0 -> 1.0
+            # "3 years (for 4) is problematic but not terrible" -> 0.75 -> 0.6
+            return 0.2 + (ratio - 0.5) * 1.6
+
+    # Over-qualified (or exact match)
     else:
-        # Gentle decay: 0.7 → 0.5 (capped at 0.5)
-        excess_ratio = (resume_years - job_min_years * 3) / job_min_years
-        return max(0.5, 0.7 - (excess_ratio * 0.1))
+        diff = resume_years - job_min_years
+        
+        # "If I am 5 (for 4) it's also great" -> +1 year is perfect
+        if diff <= 1.0:
+            return 1.0
+            
+        # "6 is great but less" -> Decay starts
+        # NEW: Non-linear decay based on seniority level
+        # For senior roles (7+), experience gaps are less critical
+        else:
+            # Dynamic decay with seniority adjustment:
+            # Junior roles (<5 years): Strict decay - over-qualification is more problematic
+            # Mid roles (5-6 years): Moderate decay
+            # Senior roles (7+ years): Gentle decay - "7→9 or 10→12 is not critical"
+            
+            if job_min_years < 5:
+                # Junior/Mid: More sensitive to over-qualification
+                # Example: R=4, C=7 → diff=3 → score = 1.0 - 2*0.18 = 0.64
+                decay_factor = 0.18
+            elif job_min_years < 7:
+                # Mid-Senior transition: Moderate decay
+                # Example: R=5, C=8 → diff=3 → score = 1.0 - 2*0.12 = 0.76
+                decay_factor = 0.12
+            else:
+                # Senior (7+): Very gentle decay
+                # Example: R=7, C=10 → diff=3 → score = 1.0 - 2*0.06 = 0.88 ✓
+                # Example: R=10, C=15 → diff=5 → score = 1.0 - 4*0.06 = 0.76 ✓
+                decay_factor = 0.06
+            
+            score = 1.0 - (diff - 1.0) * decay_factor
+            return max(0.0, score)
 
 
 def calculate_experience_match_detailed(
@@ -125,13 +140,13 @@ def calculate_experience_match_detailed(
     # Determine verdict
     if job_min_years == 0:
         verdict = "no_requirement"
-    elif candidate_years < job_min_years * 0.8:
+    elif candidate_years < job_min_years * 0.5:
         verdict = "significantly_under_qualified"
     elif candidate_years < job_min_years:
         verdict = "slightly_under_qualified"
-    elif candidate_years <= job_min_years * 2:
+    elif candidate_years <= job_min_years + 1.0:
         verdict = "perfect_match"
-    elif candidate_years <= job_min_years * 3:
+    elif candidate_years <= job_min_years + 3.0:
         verdict = "moderately_over_qualified"
     else:
         verdict = "significantly_over_qualified"

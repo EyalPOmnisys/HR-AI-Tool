@@ -16,6 +16,7 @@ class CandidateRow(BaseModel):
     resume_id: UUID
     match: int                                      # Final combined score (0-100)
     candidate: Optional[str] = None                 # Candidate name
+    title: Optional[str] = None                     # Job title (from most recent experience)
     experience: Optional[str] = None                # Years of experience
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -28,6 +29,8 @@ class CandidateRow(BaseModel):
     llm_strengths: Optional[str] = None             # What the LLM found positive
     llm_concerns: Optional[str] = None              # What the LLM found concerning
     llm_recommendation: Optional[str] = None        # hire_immediately|strong_interview|interview|maybe|pass
+    stability_score: Optional[int] = None           # Employment stability score (0-100)
+    stability_verdict: Optional[str] = None         # excellent_stability|good_stability|acceptable_stability|moderate_concerns|significant_concerns|severe_stability_issues
 
 
 class MatchRunResponse(BaseModel):

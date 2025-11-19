@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -53,11 +54,15 @@ def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
     mime = (resume.mime_type or "").lower()
     suffix = path.suffix.lower()
     
+    # Encode filename for Content-Disposition header (RFC 5987)
+    # This handles Hebrew and other non-ASCII characters
+    encoded_filename = quote(path.name.encode('utf-8'))
+    
     # For PDF files, stream the original
     if suffix == ".pdf" or "pdf" in mime:
         f = open(path, "rb")
         headers = {
-            "Content-Disposition": f'inline; filename="{path.name}"',
+            "Content-Disposition": f'inline; filename*=UTF-8\'\'{encoded_filename}',
         }
         return StreamingResponse(f, media_type="application/pdf", headers=headers)
     
@@ -69,7 +74,7 @@ def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
     # Fallback: try to stream as-is
     f = open(path, "rb")
     headers = {
-        "Content-Disposition": f'inline; filename="{path.name}"',
+        "Content-Disposition": f'inline; filename*=UTF-8\'\'{encoded_filename}',
     }
     return StreamingResponse(f, media_type=mime or "application/octet-stream", headers=headers)
 

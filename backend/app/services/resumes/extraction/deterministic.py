@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
+from app.services.common.skills_normalizer import normalize_skill
+
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 PHONE_CANDIDATE_RE = re.compile(r"(?:(?<!\d)\+?\d[\d\s().\-]{7,}\d(?!\d))")
 YEAR_RANGE_RE = re.compile(r"^\s*\d{4}\s*[-–—]\s*\d{4}\s*$")
@@ -30,42 +32,42 @@ SECTION_RE = re.compile(
     re.I,
 )
 
-# NOTE: keys are raw mentions; values are normalized tokens
+# NOTE: keys are raw mentions (lowercase); values are properly capitalized display names
 TECH_DICT = {
     # languages & frameworks
-    "python": "python", "py": "python", "r": "r", "java": "java",
-    "c#": "csharp", "csharp": "csharp", "c++": "cpp", "go": "go",
-    "javascript": "javascript", "typescript": "typescript", "ts": "typescript",
-    "php": "php", "ruby": "ruby", "scala": "scala", "rust": "rust",
+    "python": "Python", "py": "Python", "r": "R", "java": "Java",
+    "c#": "C#", "csharp": "C#", "c++": "C++", "go": "Go",
+    "javascript": "JavaScript", "typescript": "TypeScript", "ts": "TypeScript",
+    "php": "PHP", "ruby": "Ruby", "scala": "Scala", "rust": "Rust",
 
     # front-end
-    "react": "react", "vue": "vue", "angular": "angular",
-    "nextjs": "nextjs", "tailwind": "tailwind",
-    "html": "html", "html5": "html", "css": "css", "css3": "css",
+    "react": "React", "vue": "Vue", "angular": "Angular",
+    "nextjs": "Next.js", "tailwind": "Tailwind",
+    "html": "HTML", "html5": "HTML", "css": "CSS", "css3": "CSS",
 
     # node ecosystem & back-end
-    "node": "nodejs", "node js": "nodejs", "node.js": "nodejs", "express": "express",
-    "nest": "nestjs", "nestjs": "nestjs", "spring": "spring",
-    ".net": "dotnet", "dotnet": "dotnet", "django": "django", "flask": "flask", "fastapi": "fastapi",
+    "node": "Node.js", "node js": "Node.js", "node.js": "Node.js", "express": "Express",
+    "nest": "NestJS", "nestjs": "NestJS", "spring": "Spring",
+    ".net": ".NET", "dotnet": ".NET", "django": "Django", "flask": "Flask", "fastapi": "FastAPI",
 
     # data & ml
-    "pandas": "pandas", "numpy": "numpy", "scikit-learn": "scikit-learn",
-    "xgboost": "xgboost", "lightgbm": "lightgbm", "spark": "spark", "airflow": "airflow",
+    "pandas": "Pandas", "numpy": "NumPy", "scikit-learn": "Scikit-learn",
+    "xgboost": "XGBoost", "lightgbm": "LightGBM", "spark": "Spark", "airflow": "Airflow",
 
     # mapping/3D
-    "cesium": "cesium", "openlayers": "openlayers",
+    "cesium": "Cesium", "openlayers": "OpenLayers",
 
     # databases
-    "sql": "sql", "postgres": "postgresql", "postgresql": "postgresql",
-    "mysql": "mysql", "mongodb": "mongodb",
+    "sql": "SQL", "postgres": "PostgreSQL", "postgresql": "PostgreSQL",
+    "mysql": "MySQL", "mongodb": "MongoDB",
 
     # devops & infra
-    "docker": "docker", "kubernetes": "kubernetes", "k8s": "kubernetes",
-    "git": "git", "jenkins": "jenkins", "linux": "linux",
-    "openshift": "openshift", "splunk": "splunk",
+    "docker": "Docker", "kubernetes": "Kubernetes", "k8s": "Kubernetes",
+    "git": "Git", "jenkins": "Jenkins", "linux": "Linux",
+    "openshift": "OpenShift", "splunk": "Splunk",
 
     # clouds
-    "aws": "aws", "gcp": "gcp", "azure": "azure",
+    "aws": "AWS", "gcp": "GCP", "azure": "Azure",
 }
 
 LANGUAGE_WORDS = {"hebrew", "english", "arabic", "russian", "french", "spanish", "german"}
@@ -147,42 +149,31 @@ def _extract_languages(text: str) -> List[str]:
     return sorted(found)
 
 
-def _normalize_skill_name(skill: str) -> str:
-    """Normalize skill name by removing version numbers and common variations."""
-    if not isinstance(skill, str):
-        return skill
-    
-    # Remove version numbers and variations
-    # Examples: "Angular 8" → "Angular", "Node.js 14" → "Node.js", "Python 3.9" → "Python"
-    normalized = re.sub(r'\s+\d+(\.\d+)*\s*$', '', skill.strip(), flags=re.I)
-    normalized = re.sub(r'\s+v\d+(\.\d+)*\s*$', '', normalized, flags=re.I)
-    
-    # Additional common normalizations
-    mapping = {
-        "angular": "Angular",
-        "react": "React",
-        "vue": "Vue",
-        "node.js": "Node.js",
-        "nodejs": "Node.js",
-        "python": "Python",
-        "javascript": "JavaScript",
-        "typescript": "TypeScript",
-    }
-    
-    lower_norm = normalized.lower()
-    return mapping.get(lower_norm, normalized)
+# Removed: _normalize_skill_name - now using centralized normalize_skill() from skills_normalizer
 
 
 def _extract_skills(text: str) -> List[Dict[str, Any]]:
-    found: Dict[str, List[Dict[str, int]]] = {}
-    for raw, norm in TECH_DICT.items():
+    """Extract skills with unified format: name, source, weight, category.
+    
+    Uses centralized TECH_DICT and normalize_skill() for perfect consistency.
+    """
+    found: Dict[str, int] = {}  # Track occurrence count per normalized skill
+    for raw, canonical in TECH_DICT.items():
         pattern = r"(?<![A-Za-z0-9+])" + re.escape(raw) + r"(?![A-Za-z0-9+])"
         for match in re.finditer(pattern, text, flags=re.I):
-            found.setdefault(norm, []).append({"char_start": match.start(), "char_end": match.end()})
+            # Normalize through central normalizer for consistency
+            normalized = normalize_skill(canonical)
+            found[normalized] = found.get(normalized, 0) + 1
+    
     skills: List[Dict[str, Any]] = []
-    for norm, spans in found.items():
-        confidence = 0.9 if len(spans) > 1 else 0.8
-        skills.append({"name": norm, "provenance": spans, "confidence": confidence})
+    for norm, _count in found.items():
+        # Deterministic skills are always general (binary model: general=0.6)
+        skills.append({
+            "name": norm,
+            "source": "deterministic",
+            "weight": 0.6,
+            "category": None
+        })
     return skills
 
 
