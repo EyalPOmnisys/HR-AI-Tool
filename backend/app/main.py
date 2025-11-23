@@ -1,3 +1,8 @@
+"""Application entrypoint: sets up FastAPI app, CORS, logging and registers API routers.
+
+This file centralizes server bootstrap concerns (middleware, routers, log levels)
+so background services and domain logic stay isolated in their respective modules.
+"""
 import logging
 import sys
 from fastapi import FastAPI

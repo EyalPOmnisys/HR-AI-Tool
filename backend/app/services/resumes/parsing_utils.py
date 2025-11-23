@@ -1,5 +1,5 @@
-# app/services/resumes/parsing_utils.py
-"""Utilities for reading, parsing, and chunking resume text (English + Hebrew RTL support)."""
+"""Resume parsing utilities for reading, parsing PDF/DOCX/TXT files, and intelligent chunking with Hebrew RTL support."""
+
 from __future__ import annotations
 
 import hashlib

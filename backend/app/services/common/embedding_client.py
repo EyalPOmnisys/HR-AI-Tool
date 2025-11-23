@@ -1,4 +1,6 @@
 # app/services/common/embedding_client.py
+"""OpenAI embedding client for vector generation: single-text and batched embedding creation
+with retry logic, used across jobs and resumes for semantic search and RAG."""
 from __future__ import annotations
 import logging
 import time

@@ -1,4 +1,6 @@
 # app/services/common/text_normalizer.py
+"""Text normalization utilities: clean HTML tags, deduplicate sentences, collapse whitespace,
+approximate token counts, and simple language detection for FTS and embedding prep."""
 from __future__ import annotations
 import re
 from typing import Iterable, List

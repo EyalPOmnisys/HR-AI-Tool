@@ -1,5 +1,4 @@
-# Vector-based candidate search using pgvector for semantic similarity.
-# Fast filtering stage that returns candidates for detailed scoring.
+"""Vector-based candidate search using pgvector for semantic similarity matching between job requirements and resume embeddings."""
 
 from __future__ import annotations
 import logging

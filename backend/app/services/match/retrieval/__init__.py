@@ -1,2 +1,1 @@
-# Retrieval and scoring algorithms for candidate matching.
-# Contains RAG search, deterministic matchers, and ensemble scoring.
+"""Retrieval and scoring algorithms including RAG search, skills/experience/title matchers, and ensemble scoring for candidate matching."""

@@ -1,5 +1,4 @@
-"""
-Tech Roles Knowledge Base - Static mappings for high-tech job titles.
+"""Tech roles knowledge base providing comprehensive role category mappings, synonyms, and similarity relationships for high-tech job titles.
 
 This module provides comprehensive mappings of job titles, synonyms, and related terms
 across all major tech roles to improve semantic matching accuracy.

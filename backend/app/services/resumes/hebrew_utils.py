@@ -1,3 +1,5 @@
+"""Hebrew text utilities for detecting, normalizing, and preprocessing Hebrew resumes with RTL support and date/heading canonicalization."""
+
 from __future__ import annotations
 
 import re

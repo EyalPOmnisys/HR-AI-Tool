@@ -1,5 +1,4 @@
-# Skills matching algorithm - Simple source-based classification.
-# Matches candidate skills to job requirements and classifies by source.
+"""Skills matching using binary weighting model that scores experience-based skills (1.0) higher than general skills (0.6)."""
 
 from __future__ import annotations
 from typing import Any, Optional

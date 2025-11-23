@@ -1,4 +1,6 @@
 # app/services/common/llm_client.py
+"""Unified LLM client supporting both Ollama and OpenAI: handles text and structured JSON responses,
+prompt loading, and provider abstraction for all AI-powered extraction and analysis."""
 from __future__ import annotations
 import json
 import logging

@@ -1,8 +1,4 @@
-# app/services/resumes/extraction/llm_boost.py
-"""
-LLM Resume Enhancer - AI-powered structured extraction with validation and experience clustering.
-Processes resumes using LLM for education, experience, and clustering while maintaining data quality and preventing hallucinations.
-"""
+"""LLM-powered resume enhancement with structured extraction, validation, and experience clustering while preventing hallucinations."""
 # -----------------------------------------------------------------------------
 # PURPOSE (English-only header)
 # End-to-end LLM pipeline with strict validation, reliable merging and duration

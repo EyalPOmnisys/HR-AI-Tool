@@ -1,5 +1,4 @@
-# Ensemble scorer combining RAG, skills matching, and future algorithms.
-# Main entry point for candidate retrieval and scoring.
+"""Ensemble scorer combining RAG vector search, skills matching, experience scoring, and title matching into weighted final scores."""
 
 from __future__ import annotations
 import logging

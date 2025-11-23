@@ -1,8 +1,4 @@
-# app/services/resumes/extraction/deterministic.py
-"""
-Deterministic Resume Extractor - Safe, rule-based extraction of factual information.
-Extracts contacts (emails, phones, URLs), sections, languages, and skills without inference or guessing.
-"""
+"""Safe rule-based resume extraction for contacts, sections, languages, and skills without inference or guessing to avoid false positives."""
 # -----------------------------------------------------------------------------
 # PURPOSE (English-only comments)
 # - "Safe-only" deterministic signals to avoid introducing wrong facts:

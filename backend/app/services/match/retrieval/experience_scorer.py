@@ -1,5 +1,4 @@
-# Experience matching with proximity-based scoring.
-# Prefers candidates close to requirements rather than just "more is better".
+"""Experience scoring using proximity-based approach that favors candidates close to requirements rather than just overqualification."""
 
 from __future__ import annotations
 from typing import Optional, Dict, Any

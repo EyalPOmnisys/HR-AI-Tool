@@ -1,6 +1,4 @@
-# Employment Stability Scorer
-# Measures job stability based on tenure patterns and career progression.
-# Lower scores for job hoppers, higher for consistent employment history.
+"""Employment stability scoring that measures job stability based on tenure patterns, penalizing job hopping and rewarding consistent employment."""
 
 from __future__ import annotations
 from typing import Optional, Dict, Any, List

@@ -1,8 +1,6 @@
 # app/services/jobs/normalizer.py
-"""
-Job Analysis Normalizer - Post-processes LLM output to ensure data quality and consistency.
-Validates extracted data is explicitly present in source text, canonicalizes tech terms, and prevents hallucinations.
-"""
+"""Job Analysis Normalizer: post-processes LLM output to ensure data quality, validates extracted data
+is present in source text, canonicalizes tech terms via skills_normalizer, and prevents hallucinations."""
 from __future__ import annotations
 
 import re

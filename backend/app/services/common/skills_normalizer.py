@@ -1,5 +1,8 @@
 # app/services/common/skills_normalizer.py
-"""
+"""Central skills normalizer - single source of truth for canonicalizing tech skill names:
+maps variations (Node/nodejs/Node.js) to standard forms, ensures perfect consistency across resumes, jobs, and matching.
+
+OLD DESCRIPTION:
 Central Skills Normalizer - Single source of truth for skill name normalization.
 
 This module ensures perfect consistency across the entire system:

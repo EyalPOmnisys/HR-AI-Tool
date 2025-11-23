@@ -1,8 +1,6 @@
 # app/services/jobs/chunker.py
-"""
-Job Chunking Service - Breaks down analyzed job data into smaller, searchable text chunks.
-Creates section-based chunks (summary, requirements, responsibilities, tech stack) for embedding and search.
-"""
+"""Job Chunking Service: breaks analyzed job data into section-based searchable chunks
+(summary, requirements, tech stack) for embedding and precise vector matching."""
 from __future__ import annotations
 import logging
 from typing import Dict, Any, List, Optional

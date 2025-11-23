@@ -1,3 +1,5 @@
+"""Thin OpenAI helper module: simple chat completions, JSON parsing wrapper,
+and single-text embedding generation used by legacy or lightweight flows."""
 from __future__ import annotations
 import json
 from openai import OpenAI

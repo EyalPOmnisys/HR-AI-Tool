@@ -1,8 +1,6 @@
 # app/services/jobs/analyzer.py
-"""
-Job Analysis Service - Uses LLM to extract structured data from raw job postings.
-Loads prompts, validates against schema, and returns normalized job information.
-"""
+"""Job Analysis Service: uses LLM to extract structured data (skills, tech stack, requirements)
+from raw job postings, validates against schema, and returns normalized JSON."""
 from __future__ import annotations
 from typing import Tuple
 

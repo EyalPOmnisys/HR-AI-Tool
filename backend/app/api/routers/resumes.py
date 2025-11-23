@@ -1,3 +1,8 @@
+"""Resume API endpoints: list summaries, fetch detailed structured resume data, and preview original files.
+
+Provides lightweight listing plus rich detail retrieval and format-aware streaming/HTML conversion
+for PDF/DOCX/TXT resumes with Hebrew RTL support.
+"""
 from __future__ import annotations
 
 import io

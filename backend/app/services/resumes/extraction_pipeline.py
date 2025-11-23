@@ -1,8 +1,4 @@
-# app/services/resumes/extraction_pipeline.py
-"""
-Resume Extraction Pipeline - Orchestrates safe deterministic extraction and LLM enhancement.
-Coordinates rule-based and AI-powered extraction to produce validated, structured resume data.
-"""
+"""Resume extraction pipeline orchestrating safe deterministic extraction with LLM enhancement for structured, validated resume data."""
 # -----------------------------------------------------------------------------
 # PURPOSE (English-only header)
 # Mandatory LLM-based extraction pipeline with a minimal deterministic "safe"

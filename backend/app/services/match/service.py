@@ -1,5 +1,4 @@
-# Main orchestrator for job-to-resume matching pipeline.
-# Coordinates ensemble retrieval (RAG + skills + experience) and LLM evaluation.
+"""Main matching service orchestrating ensemble retrieval (RAG + skills + experience) and LLM evaluation for job-to-resume matching."""
 
 from __future__ import annotations
 import logging

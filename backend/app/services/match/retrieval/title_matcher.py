@@ -1,10 +1,9 @@
-# Generic semantic title matching using embeddings.
-# Works for ANY job titles without manual configuration or synonym lists.
+"""Hybrid title matching combining semantic embeddings with keyword analysis and role knowledge base to match job titles across work history."""
 
 from __future__ import annotations
 import numpy as np
 from typing import List, Optional, Dict, Any, Set
-from sentence_transformers import SentenceTransformer
+import requests
 import logging
 
 from app.core.config import settings
@@ -19,7 +18,7 @@ class TitleMatcher:
     Works for ANY job titles without manual configuration.
     
     Uses two-stage matching:
-    1. Semantic similarity via SentenceTransformer (base score 0-100)
+    1. Semantic similarity via Ollama embeddings (base score 0-100)
     2. Keyword overlap boost for technical terms (+0-30 bonus)
     
     Automatically handles:
@@ -29,19 +28,24 @@ class TitleMatcher:
     - Word order and typos
     """
 
-    # Lazy-load embedder (singleton pattern)
-    _embedder: Optional[SentenceTransformer] = None
-
-    @classmethod
-    def get_embedder(cls) -> SentenceTransformer:
-        """Get or initialize the embedding model"""
-        if cls._embedder is None:
-            # Load model name from configuration
-            model_name = settings.SENTENCE_TRANSFORMER_MODEL
-            logger.info(f"Initializing SentenceTransformer for title matching: {model_name}")
-            cls._embedder = SentenceTransformer(model_name)
-            logger.info("Title matching embedder ready")
-        return cls._embedder
+    @staticmethod
+    def get_embedding_from_ollama(text: str) -> np.ndarray:
+        """Get embedding from Ollama server"""
+        try:
+            response = requests.post(
+                f"{settings.OLLAMA_BASE_URL}/api/embeddings",
+                json={
+                    "model": settings.SENTENCE_TRANSFORMER_MODEL,
+                    "prompt": text
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            embedding = response.json()["embedding"]
+            return np.array(embedding)
+        except Exception as e:
+            logger.error(f"Failed to get embedding from Ollama: {e}")
+            raise
 
     @staticmethod
     def normalize_title(title: str) -> str:
@@ -142,14 +146,14 @@ class TitleMatcher:
         return final_boost
 
     @staticmethod
-    def compute_semantic_similarity(text1: str, text2: str, embedder: SentenceTransformer) -> float:
+    def compute_semantic_similarity(text1: str, text2: str, embedder=None) -> float:
         """
-        Compute semantic similarity between two texts using embeddings.
+        Compute semantic similarity between two texts using Ollama embeddings.
         
         Args:
             text1: First text (job title)
             text2: Second text (resume title)
-            embedder: SentenceTransformer model
+            embedder: Ignored (kept for compatibility)
         
         Returns:
             Similarity score 0-100 (cosine similarity normalized)
@@ -162,9 +166,9 @@ class TitleMatcher:
             t1 = TitleMatcher.normalize_title(text1)
             t2 = TitleMatcher.normalize_title(text2)
 
-            # Get embeddings (batch for efficiency)
-            embeddings = embedder.encode([t1, t2], convert_to_numpy=True)
-            emb1, emb2 = embeddings[0], embeddings[1]
+            # Get embeddings from Ollama
+            emb1 = TitleMatcher.get_embedding_from_ollama(t1)
+            emb2 = TitleMatcher.get_embedding_from_ollama(t2)
 
             # Cosine similarity
             dot_product = np.dot(emb1, emb2)
@@ -193,7 +197,7 @@ class TitleMatcher:
     def compute_detailed_match(
         job_title: str,
         resume_titles: List[str],
-        embedder: Optional[SentenceTransformer] = None
+        embedder=None
     ) -> Dict[str, Any]:
         """
         Compute best title match and return detailed results.
@@ -208,9 +212,7 @@ class TitleMatcher:
                 "all_matches": []
             }
 
-        # Get embedder
-        if embedder is None:
-            embedder = TitleMatcher.get_embedder()
+        # embedder parameter ignored - kept for compatibility
 
         # Find best matching title from resume
         best_score = 0.0
@@ -225,7 +227,7 @@ class TitleMatcher:
             semantic_score = TitleMatcher.compute_semantic_similarity(
                 job_title,
                 resume_title,
-                embedder
+                None
             )
             
             # 2. Keyword boost (0-30 bonus points)
@@ -264,7 +266,7 @@ class TitleMatcher:
     def compute_title_match(
         job_title: str,
         resume_titles: List[str],
-        embedder: Optional[SentenceTransformer] = None
+        embedder=None
     ) -> float:
         """
         Compute best title match using HYBRID approach:
@@ -274,12 +276,12 @@ class TitleMatcher:
         Args:
             job_title: The job title to match against
             resume_titles: List of job titles from the resume
-            embedder: Optional pre-loaded embedder (for efficiency)
+            embedder: Ignored (kept for compatibility)
             
         Returns:
             Best match score 0-100
         """
-        result = TitleMatcher.compute_detailed_match(job_title, resume_titles, embedder)
+        result = TitleMatcher.compute_detailed_match(job_title, resume_titles, None)
         return result["score"]
 
 
@@ -399,7 +401,6 @@ def calculate_title_match_with_history(
         }
     
     # 2. Calculate scores
-    embedder = TitleMatcher.get_embedder()
     scores = []
     
     for item in titles_to_check:
@@ -407,7 +408,7 @@ def calculate_title_match_with_history(
         source = item["source"]
         
         # Use detailed match logic
-        res = TitleMatcher.compute_detailed_match(job_title, [title_text], embedder)
+        res = TitleMatcher.compute_detailed_match(job_title, [title_text], None)
         score_val = round(res["score"], 1)
         
         scores.append({

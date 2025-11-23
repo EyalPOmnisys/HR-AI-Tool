@@ -1,5 +1,4 @@
-# LLM Judge: Final evaluation and scoring of candidates.
-# The LLM receives complete job + resume data and provides authoritative scoring.
+"""LLM-based candidate evaluation that provides final authoritative scoring using job requirements and candidate resumes in batches."""
 
 from __future__ import annotations
 import logging

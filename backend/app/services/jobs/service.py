@@ -1,3 +1,5 @@
+"""High-level Job service: CRUD plus AI enrichment (analysis, normalization,
+chunking, embeddings) coordinating submodules into a single pipeline."""
 from __future__ import annotations
 
 from typing import Optional, Tuple
