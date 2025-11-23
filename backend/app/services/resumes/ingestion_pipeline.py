@@ -492,10 +492,17 @@ def _extract_profession(experience: Any, education: Any = None, person: Any = No
     Extract candidate's current/most relevant title.
     
     Priority: 
-    1. Most recent role with explicit title from real work experience
-    2. If no work experience, infer from education field
-    3. Last resort: most recent title from any entry
+    1. Self-declared title (from summary/header)
+    2. Most recent role with explicit title from real work experience
+    3. If no work experience, infer from education field
+    4. Last resort: most recent title from any entry
     """
+    # Check self-declared title first
+    if isinstance(person, dict):
+        self_title = _clean(person.get("self_declared_title"))
+        if self_title:
+            return self_title
+
     if not isinstance(experience, list):
         experience = []
     

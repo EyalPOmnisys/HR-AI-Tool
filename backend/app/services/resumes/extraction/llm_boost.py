@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
-from app.services.common.llm_client import default_llm_client, load_prompt
+from app.services.common.llm_client import default_llm_client, load_prompt, LLMClient
 from app.services.common.skills_normalizer import normalize_skill, normalize_tech_array
 
 RESUME_EXTRACTION_PROMPT = load_prompt("resumes/resume_extraction.prompt.txt")
@@ -782,7 +782,13 @@ def _final_normalize(extraction: Dict[str, Any], cleaned_cluster: Dict[str, Any]
 def _call_llm_json(messages: List[Dict[str, str]], timeout: int = LLM_TIMEOUT_S) -> Optional[Dict[str, Any]]:
     """Thin wrapper for JSON chat calls. Returns dict or None."""
     try:
-        resp = default_llm_client.chat_json(messages, timeout=timeout)
+        # Use resume-specific model if configured, otherwise default
+        if settings.LLM_CHAT_MODEL_RESUME:
+            client = LLMClient(model=settings.LLM_CHAT_MODEL_RESUME)
+        else:
+            client = default_llm_client
+
+        resp = client.chat_json(messages, timeout=timeout)
         data = resp.data
         if isinstance(data, dict):
             return data

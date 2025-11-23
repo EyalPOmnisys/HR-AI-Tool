@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # --- AI Models & Services (legacy-friendly fields kept for compatibility) ---
     OLLAMA_BASE_URL: str | None = Field(default=None, description="Base URL of local Ollama server")
     LLM_CHAT_MODEL: str | None = Field(default=None, description="Model used for job analysis (legacy)")
+    LLM_CHAT_MODEL_RESUME: str | None = Field(default=None, description="Model used for resume analysis")
     EMBEDDING_MODEL: str | None = Field(default=None, description="Model used for text embeddings (legacy)")
     ANALYSIS_VERSION: int = Field(default=1)
 

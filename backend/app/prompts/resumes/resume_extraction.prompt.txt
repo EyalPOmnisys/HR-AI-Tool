@@ -14,7 +14,10 @@ Return ONLY valid JSON matching this exact structure:
 {
   "person": {
     "name": string|null,           // Full name as written in resume
+    "self_declared_title": string|null, // Candidate's self-described title/headline (e.g. "Aspiring Software Developer", "Full Stack Engineer")
     "location": string|null,        // Current city/country if mentioned
+    "phones": [{"value": string, "type": "phone"}], // Candidate's primary phone only. Ignore references.
+    "emails": [{"value": string, "type": "email"}], // Candidate's email only. Ignore references.
     "languages": [string]           // Spoken languages (e.g., ["Hebrew", "English", "Arabic"])
   },
   "education": [
@@ -51,6 +54,11 @@ Return ONLY valid JSON matching this exact structure:
 
 **Person:**
 - Extract full name from header/contact section
+- Extract `self_declared_title` from the summary, about section, or header.
+- Clean up the title: remove subjective adjectives like "Aspiring", "Motivated", "Enthusiastic". KEEP seniority levels like "Senior", "Junior", "Lead". (e.g. "Aspiring Junior Developer" -> "Junior Developer"). If not explicitly stated, leave null.
+- **Contacts**: Extract ONLY the candidate's personal phone and email.
+  * CRITICAL: Ignore contact details listed under "References" or belonging to other people.
+  * If multiple phones exist, prefer the mobile number and extract only one if possible.
 - Languages: include only explicitly mentioned languages with proficiency if stated
 
 **Education:**
@@ -60,10 +68,16 @@ Return ONLY valid JSON matching this exact structure:
 
 **Experience:**
 - Include ONLY formal employment (paid roles at companies/organizations)
-- Exclude: volunteer work, personal projects, academic projects, hackathons
-- Include: internships only if they were formal paid positions
+- **CRITICAL EXCLUSION (University/Projects):**
+  *   **STRICTLY EXCLUDE** entries where the raw title indicates a project, even if listed under Experience (e.g., "Data Projects", "Final Project", "Capstone", "Coursework", "Thesis").
+  *   If the company is a University/College:
+      - **INCLUDE ONLY:** Paid staff roles (e.g., "Teaching Assistant", "Research Assistant", "Lecturer", "Lab Manager").
+      - **EXCLUDE:** Roles that describe studies or projects (e.g., "Student", "Researcher" (if context is thesis), "Project Member").
 - Military service: include as experience if it involved professional work (not basic training)
-- **Title**: Extract job title as stated. If missing, infer from role description and responsibilities using industry-standard titles
+- **Title Integrity (CRITICAL):**
+  *   **NEVER** rename a section labeled "Projects" (or similar) to a job title like "Software Developer" or "Data Scientist".
+  *   If the text says "Data Projects", treat the title as "Data Projects" -> recognize it is on the exclusion list -> and **DROP the entire entry**.
+  *   Only infer titles if the role is clearly a paid job at a commercial company but the specific rank is missing.
 - For "bullets": extract 3-7 key points per role focusing on:
   * Technical achievements
   * Impact/results (metrics if available)
@@ -82,10 +96,12 @@ Return ONLY valid JSON matching this exact structure:
 **Skills:**
 - Extract ALL skills from entire resume with SOURCE TRACKING (CRITICAL)
 - For EACH skill, determine its source and assign appropriate weight:
-  * "work_experience" (weight=1.0): Skills mentioned in job responsibilities, achievements, or tech stacks
+  * "work_experience" (weight=1.0): ONLY if the skill was ACTIVELY USED in a paid professional role to perform tasks.
   * "projects" (weight=0.8): Skills from personal/academic/side projects section
   * "education" (weight=0.6): Skills from courses, degrees, certifications
   * "skills_list" (weight=0.4): Skills from standalone skills section without context
+- **CRITICAL EXCLUSION:** Do NOT attribute a skill to "work_experience" if it is only mentioned as an analogy (e.g., "similar to coding"), a comparison, or a future interest within a job description.
+- If a skill appears in a "Skills" section but is not explicitly described as a tool used in a specific job, classify it as "skills_list".
 - A skill can appear MULTIPLE TIMES with different sources (e.g., Python in both work_experience and skills_list)
 - **CRITICAL NORMALIZATION RULES:**
   * Remove ALL version numbers: "Angular 8" → "Angular", "Python 3.9" → "Python", "Node.js 14" → "Node.js"

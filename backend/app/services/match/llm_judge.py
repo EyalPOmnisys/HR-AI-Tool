@@ -32,7 +32,7 @@ class LLMJudge:
     4. Return evaluations with final_score, strengths, concerns, recommendation
     """
     
-    BATCH_SIZE = 5  # Process 3 candidates per LLM call
+    BATCH_SIZE = 3  # Process 3 candidates per LLM call (Reduced from 5 to improve reliability)
     
     @staticmethod
     async def evaluate_candidates(
@@ -308,6 +308,9 @@ class LLMJudge:
             content_dict = response.data
             evaluations = content_dict.get("evaluations", [])
             
+            if not evaluations:
+                logger.warning(f"⚠️  LLM returned valid JSON but no 'evaluations' list. Keys found: {list(content_dict.keys())}")
+
             # Compact summary table
             logger.info(f"\n📊 Batch {batch_num} Results:")
             logger.info("┌─────────────────────────┬───────┬────────────────────┐")

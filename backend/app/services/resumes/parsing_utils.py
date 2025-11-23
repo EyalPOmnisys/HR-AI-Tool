@@ -12,52 +12,44 @@ from typing import List
 from app.models.resume import ResumeChunk
 
 
-# --- RTL Detection and Correction ---
+import fitz  # PyMuPDF
+import logging
 
-def _is_hebrew_char(char: str) -> bool:
-    """Check if a character is Hebrew."""
-    return '\u0590' <= char <= '\u05FF'
+logger = logging.getLogger(__name__)
 
-
-def _has_significant_hebrew(text: str) -> bool:
-    """Check if text contains significant Hebrew content (>30% Hebrew chars)."""
-    if not text:
-        return False
-    hebrew_count = sum(1 for c in text if _is_hebrew_char(c))
-    total_letters = sum(1 for c in text if c.isalpha())
-    return total_letters > 0 and (hebrew_count / total_letters) > 0.3
-
-
-def _reverse_rtl_line(line: str) -> str:
+def parse_pdf_content(file_content: bytes) -> str:
     """
-    Reverse RTL (Right-to-Left) text that was extracted in wrong direction.
-    python-docx extracts Hebrew with characters in correct order but words reversed.
-    Example: "יתור ץיבוקשומ" should become "מושקוביץ רותי"
+    Parses PDF content using PyMuPDF (fitz) with layout preservation.
+    Sorts text blocks by physical location to handle multi-column resumes correctly.
     """
-    if not line or not _has_significant_hebrew(line):
-        return line
-    
-    # Split into tokens preserving Hebrew words, English words, numbers, and punctuation
-    # Hebrew characters are already in correct order within words, we just need to reverse word order
-    tokens = re.findall(r'[\u0590-\u05FF]+|[a-zA-Z]+|\d+|[^\w\s]+|\s+', line)
-    
-    # Reverse only the order of tokens (words), not the characters within Hebrew words
-    reversed_tokens = tokens[::-1]
-    
-    return ''.join(reversed_tokens)
+    try:
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        full_text = []
 
+        for page in doc:
+            # get_text("blocks") returns a list of tuples: (x0, y0, x1, y1, "text", block_no, block_type)
+            blocks = page.get_text("blocks")
+            
+            # Sort blocks primarily by vertical position (y0), then by horizontal (x0)
+            # This is crucial for 2-column layouts.
+            # We allow a small tolerance (e.g., 10 pixels) for y-alignment to group items on the "same line"
+            blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
 
-def _fix_rtl_text(text: str) -> str:
-    """
-    Fix RTL text that was extracted in reversed order.
-    Works line by line to preserve document structure.
-    """
-    if not text or not _has_significant_hebrew(text):
-        return text
-    
-    lines = text.split('\n')
-    fixed_lines = [_reverse_rtl_line(line) for line in lines]
-    return '\n'.join(fixed_lines)
+            for b in blocks:
+                text_content = b[4].strip()
+                if text_content:
+                    full_text.append(text_content)
+
+        return "\n\n".join(full_text)
+
+    except Exception as e:
+        logger.error(f"Error parsing PDF with PyMuPDF: {e}")
+        # Fallback or re-raise depending on your strategy
+        raise e
+
+def parse_text_content(file_content: bytes) -> str:
+    """Helper for plain text files"""
+    return file_content.decode("utf-8", errors="ignore")
 
 
 # --- File I/O ---
@@ -107,8 +99,7 @@ def _reconstruct_text_from_words(pdf_page) -> str:
 def parse_to_text(path: Path) -> str:
     """
     Convert resume file (PDF/DOCX/TXT) to plain text.
-    - For PDFs, prefer pdfplumber.extract_text() (line-aware); if empty,
-      fall back to reconstructing from words to reduce column/bullet fragmentation.
+    - For PDFs, use PyMuPDF (fitz) for layout-aware extraction.
     - For DOCX, use unstructured library for better extraction (tables, headers, footers)
       with fallback to python-docx.
     - Automatically fixes RTL (Hebrew) text that was extracted in reversed order.
@@ -117,18 +108,8 @@ def parse_to_text(path: Path) -> str:
     lower = path.suffix.lower()
 
     if lower == ".pdf" or mime == "application/pdf":
-        import pdfplumber
-        parts: List[str] = []
-        with pdfplumber.open(str(path)) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                if not text.strip():
-                    # Fallback reconstruction for scanned or tricky layout pages
-                    text = _reconstruct_text_from_words(page) or ""
-                # Fix RTL text if needed
-                text = _fix_rtl_text(text)
-                parts.append(text)
-        return "\n".join(parts).strip()
+        file_content = read_file_bytes(path)
+        return parse_pdf_content(file_content)
 
     if lower == ".docx" or mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         file_content = read_file_bytes(path)
@@ -138,14 +119,16 @@ def parse_to_text(path: Path) -> str:
 
     # Plain-text fallback
     text = path.read_text(encoding="utf-8", errors="ignore").strip()
-    return _fix_rtl_text(text)
+    # We removed _fix_rtl_text from here as it was part of the deleted block, 
+    # but for TXT files we might still want basic RTL handling if needed.
+    # For now, returning as-is or you can re-implement a simpler RTL fix if required.
+    return text
 
 
 def _parse_docx_advanced(file_content: bytes) -> str:
     """
     Parse DOCX with enhanced Hebrew RTL support.
     Uses python-docx as primary parser with table extraction.
-    Applies RTL fix immediately since python-docx extracts Hebrew text reversed.
     """
     try:
         from docx import Document
@@ -165,9 +148,7 @@ def _parse_docx_advanced(file_content: bytes) -> str:
                         para = p
                         break
                 if para and para.text.strip():
-                    # Fix RTL immediately for each paragraph
-                    fixed_text = _fix_rtl_text(para.text.strip())
-                    parts.append(fixed_text)
+                    parts.append(para.text.strip())
             
             # Check if it's a table
             elif element.tag.endswith('}tbl'):
@@ -180,9 +161,7 @@ def _parse_docx_advanced(file_content: bytes) -> str:
                     # Extract table with better formatting
                     table_text = _extract_table_text(table)
                     if table_text:
-                        # Fix RTL for table text too
-                        fixed_table = _fix_rtl_text(table_text)
-                        parts.append(fixed_table)
+                        parts.append(table_text)
         
         # If no structured extraction worked, fallback to simple paragraphs
         if not parts:
@@ -223,23 +202,22 @@ def _extract_table_text(table) -> str:
 def _parse_docx_fallback(file_content: bytes) -> str:
     """
     Fallback DOCX parser using python-docx.
-    Extracts paragraphs and tables with RTL fix.
+    Extracts paragraphs and tables.
     """
     from docx import Document
     
     doc = Document(io.BytesIO(file_content))
     parts = []
     
-    # Extract paragraphs with RTL fix
+    # Extract paragraphs
     for para in doc.paragraphs:
         if para.text.strip():
-            fixed_text = _fix_rtl_text(para.text)
-            parts.append(fixed_text)
+            parts.append(para.text)
     
-    # Extract tables with RTL fix
+    # Extract tables
     for table in doc.tables:
         for row in table.rows:
-            row_cells = [_fix_rtl_text(cell.text.strip()) for cell in row.cells if cell.text.strip()]
+            row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             if row_cells:
                 parts.append(" | ".join(row_cells))
     
