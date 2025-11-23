@@ -114,11 +114,13 @@ class LLMClient:
         elif settings.OPENAI_MODEL:
             self.provider = "openai"
         else:
-            raise ValueError("No LLM provider configured. Set either LLM_CHAT_MODEL or OPENAI_MODEL")
+            # Default to Ollama if nothing is set, assuming local setup
+            self.provider = "ollama"
+            logger.warning("No LLM provider configured explicitly. Defaulting to Ollama.")
         
         # Set model based on provider
         if self.provider == "ollama":
-            self.model = model or settings.LLM_CHAT_MODEL
+            self.model = model or settings.LLM_CHAT_MODEL or "llama3.2"
             self.chat_url = _build_ollama_chat_url()
             self.default_options = DEFAULT_CHAT_OPTIONS.copy()
             logger.info(f"🤖 LLM Client initialized with Ollama: {self.model} @ {settings.OLLAMA_BASE_URL}")

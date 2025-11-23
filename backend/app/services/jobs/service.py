@@ -114,7 +114,7 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
             db,
             job=job,
             chunk_defs=chunk_defs,
-            embedding_model=settings.OPENAI_EMBEDDING_MODEL,
+            embedding_model=default_embedding_client.model,
             batch_size=64,
         )
 

@@ -10,7 +10,7 @@ from pgvector.sqlalchemy import Vector
 
 from app.db.base import Base
 
-EMBED_DIM = 1536
+EMBED_DIM = 768
 
 
 class Resume(Base):

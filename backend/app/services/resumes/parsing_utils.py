@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def parse_pdf_content(file_content: bytes) -> str:
     """
     Parses PDF content using PyMuPDF (fitz) with layout preservation.
-    Sorts text blocks by physical location to handle multi-column resumes correctly.
+    Uses intelligent column detection to handle multi-column resumes correctly.
     """
     try:
         doc = fitz.open(stream=file_content, filetype="pdf")
@@ -30,12 +30,13 @@ def parse_pdf_content(file_content: bytes) -> str:
             # get_text("blocks") returns a list of tuples: (x0, y0, x1, y1, "text", block_no, block_type)
             blocks = page.get_text("blocks")
             
-            # Sort blocks primarily by vertical position (y0), then by horizontal (x0)
-            # This is crucial for 2-column layouts.
-            # We allow a small tolerance (e.g., 10 pixels) for y-alignment to group items on the "same line"
-            blocks.sort(key=lambda b: (round(b[1] / 10) * 10, b[0]))
+            # Filter for text blocks (type 0) and remove empty ones
+            text_blocks = [b for b in blocks if b[6] == 0 and b[4].strip()]
+            
+            # Sort blocks using layout analysis (Columns vs Rows)
+            sorted_blocks = _sort_blocks_by_layout(text_blocks)
 
-            for b in blocks:
+            for b in sorted_blocks:
                 text_content = b[4].strip()
                 if text_content:
                     full_text.append(text_content)
@@ -46,6 +47,106 @@ def parse_pdf_content(file_content: bytes) -> str:
         logger.error(f"Error parsing PDF with PyMuPDF: {e}")
         # Fallback or re-raise depending on your strategy
         raise e
+
+
+def _sort_blocks_by_layout(blocks: list) -> list:
+    """
+    Sort blocks by analyzing the page layout (columns vs rows).
+    1. Detects if there is a vertical column separator.
+    2. If found, splits page into bands (separated by full-width blocks like headers).
+    3. Within each band, reads Left Column then Right Column.
+    """
+    if not blocks:
+        return []
+        
+    # 1. Find page width boundaries
+    min_x = min(b[0] for b in blocks)
+    max_x = max(b[2] for b in blocks)
+    width = max_x - min_x
+    
+    # 2. Search for a column splitter in the middle 50% of the page
+    search_start = min_x + width * 0.25
+    search_end = min_x + width * 0.75
+    
+    best_split = -1
+    min_intersect_count = len(blocks) + 1
+    
+    # Scan X axis with step of 5 to find a vertical gap
+    scan_x = search_start
+    while scan_x < search_end:
+        # Count blocks crossing this line
+        count = sum(1 for b in blocks if b[0] < scan_x < b[2])
+        if count < min_intersect_count:
+            min_intersect_count = count
+            best_split = scan_x
+        scan_x += 5
+        
+    # Threshold: if too many blocks cross the split, assume single column
+    # Allow up to 3 crossing blocks (e.g. Header, Footer, Horizontal Line)
+    # OR up to 10% of total blocks
+    threshold = max(3, len(blocks) * 0.1)
+    
+    if min_intersect_count > threshold:
+        # Fallback to standard Y-sort (row by row)
+        # Group by Y (rounded) then X
+        return sorted(blocks, key=lambda b: (round(b[1] / 10) * 10, b[0]))
+        
+    # 3. Classify blocks
+    spanning = []
+    left = []
+    right = []
+    
+    for b in blocks:
+        if b[0] < best_split < b[2]:
+            spanning.append(b)
+        elif b[2] <= best_split:
+            left.append(b)
+        else:
+            right.append(b)
+            
+    # 4. Create Bands based on Spanning blocks
+    # Sort spanning blocks by Y
+    spanning.sort(key=lambda b: b[1])
+    
+    final_order = []
+    current_y = -1.0
+    
+    def get_blocks_in_band(block_list, top, bottom):
+        # Use vertical center of block to determine band membership
+        return [b for b in block_list if top <= (b[1] + b[3]) / 2 < bottom]
+
+    for sp in spanning:
+        sp_top = sp[1]
+        sp_bottom = sp[3]
+        
+        # Process band above this spanning block
+        l_band = get_blocks_in_band(left, current_y, sp_top)
+        r_band = get_blocks_in_band(right, current_y, sp_top)
+        
+        # Sort columns by Y
+        l_band.sort(key=lambda b: (b[1], b[0]))
+        r_band.sort(key=lambda b: (b[1], b[0]))
+        
+        final_order.extend(l_band)
+        final_order.extend(r_band)
+        
+        # Add the spanning block
+        final_order.append(sp)
+        
+        current_y = sp_bottom
+        
+    # Process final band
+    l_band = get_blocks_in_band(left, current_y, 99999)
+    r_band = get_blocks_in_band(right, current_y, 99999)
+    
+    l_band.sort(key=lambda b: (b[1], b[0]))
+    r_band.sort(key=lambda b: (b[1], b[0]))
+    
+    final_order.extend(l_band)
+    final_order.extend(r_band)
+    
+    return final_order
+
 
 def parse_text_content(file_content: bytes) -> str:
     """Helper for plain text files"""

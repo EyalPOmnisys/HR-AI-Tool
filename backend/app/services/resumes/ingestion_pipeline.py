@@ -63,6 +63,13 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
     try:
         resume_repo.set_status(db, resume, status="parsing")
         txt = parse_to_text(Path(resume.file_path))
+        
+        # --- DEBUG PRINT ---
+        print(f"--- DEBUG: Extracted text for {resume.file_path} ---")
+        print((txt or "")[:500])
+        print("---------------------------------------------------")
+        # -------------------
+
         resume = resume_repo.attach_parsed_text(db, resume, parsed_text=txt or "")
 
         resume_repo.set_status(db, resume, status="extracting")
@@ -130,7 +137,7 @@ def chunk_and_embed(db: Session, resume: Resume) -> Resume:
 
     # Embed each chunk with enrichment
     resume_repo.set_status(db, resume, status="embedding")
-    model = getattr(settings, "EMBEDDING_MODEL", None)
+    model = default_embedding_client.model
     version = getattr(settings, "ANALYSIS_VERSION", None)
 
     any_failure = False

@@ -49,7 +49,8 @@ def create_and_embed_chunks(
     logger.info("Embedding %d chunks for job %s", len(texts), str(job.id))
 
     # 3) Embed
-    model_name = embedding_model or settings.OPENAI_EMBEDDING_MODEL
+    # Use the model configured in the client, or fallback to settings logic
+    model_name = embedding_model or default_embedding_client.model or settings.EMBEDDING_MODEL or settings.OPENAI_EMBEDDING_MODEL
     vecs = default_embedding_client.embed_many(texts, batch_size=batch_size)
     if not vecs:
         logger.warning("No vectors returned for job %s", str(job.id))

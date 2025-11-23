@@ -21,16 +21,16 @@ class Settings(BaseSettings):
     APP_NAME: str = Field(default="HR-AI Backend")
 
     # --- AI Models & Services (legacy-friendly fields kept for compatibility) ---
-    OLLAMA_BASE_URL: str | None = Field(default=None, description="Base URL of local Ollama server")
-    LLM_CHAT_MODEL: str | None = Field(default=None, description="Model used for job analysis (legacy)")
-    LLM_CHAT_MODEL_RESUME: str | None = Field(default=None, description="Model used for resume analysis")
-    EMBEDDING_MODEL: str | None = Field(default=None, description="Model used for text embeddings (legacy)")
+    OLLAMA_BASE_URL: str = Field(default="http://host.docker.internal:11434", description="Base URL of local Ollama server")
+    LLM_CHAT_MODEL: str = Field(default="llama3.2", description="Model used for job analysis")
+    LLM_CHAT_MODEL_RESUME: str = Field(default="llama3.2", description="Model used for resume analysis")
+    EMBEDDING_MODEL: str = Field(default="nomic-embed-text", description="Model used for text embeddings")
     ANALYSIS_VERSION: int = Field(default=1)
 
-    # --- OpenAI Integration ---
+    # --- OpenAI Integration (Disabled by default) ---
     OPENAI_API_KEY: str | None = Field(default=None, description="API key for OpenAI services")
     OPENAI_MODEL: str | None = Field(default=None, description="Default OpenAI model for chat/completions (optional if using Ollama)")
-    OPENAI_EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="Default OpenAI model for embeddings")
+    OPENAI_EMBEDDING_MODEL: str | None = Field(default=None, description="Default OpenAI model for embeddings")
 
     # --- Semantic Matching ---
     SENTENCE_TRANSFORMER_MODEL: str = Field(

@@ -274,7 +274,7 @@ def validate_embedding_quality(embedding: Any) -> ValidationResult:
         
         length = len(embedding)
         
-        # Check expected dimensions (1536 for OpenAI text-embedding-3-small)
+        # Check expected dimensions (768 for nomic-embed-text, 1536 for OpenAI text-embedding-3-small)
         if length not in [1536, 3072, 768]:
             result.add_warning(f"Unexpected embedding dimension: {length}")
         
