@@ -477,6 +477,27 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-x: auto;
+  width: 100%;
+  padding-bottom: 12px;
+}
+
+.tableSection::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tableSection::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.tableSection::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.tableSection::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .candidateTable {
@@ -495,7 +516,7 @@
 }
 
 .candidateTable th {
-  padding: 16px 12px;
+  padding: 12px 8px;
   text-align: center;
   font-weight: 600;
   color: #374151;
@@ -524,7 +545,7 @@
 }
 
 .candidateTable td {
-  padding: 16px 12px;
+  padding: 12px 8px;
   color: #1f2937;
   border: 1px solid #f0f0f0;
   text-align: center;
@@ -561,8 +582,8 @@
 }
 
 .aiInsightCell {
-  max-width: 180px;
-  min-width: 180px;
+  max-width: 160px;
+  min-width: 160px;
   font-size: 13px;
   vertical-align: top;
   padding: 8px;
@@ -612,17 +633,43 @@
 .strengthsInsight {
   background-color: #f0fdf4;
   border-left: 3px solid #10b981;
-  padding: 12px;
   border-radius: 6px;
-  margin-top: 8px;
   text-align: left;
   min-width: 280px;
   max-width: 400px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  animation: expandContent 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: top center;
-  will-change: transform, opacity;
-  transition: box-shadow 0.2s ease;
+  will-change: max-height, margin, padding;
+  overflow: hidden;
+  
+  /* Collapsed state */
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 12px;
+  padding-right: 12px;
+  opacity: 0;
+  pointer-events: none;
+  border-left-width: 0;
+
+  transition: 
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease-in-out,
+    border-left-width 0.2s ease;
+}
+
+.strengthsInsight.visible {
+  max-height: 800px;
+  opacity: 1;
+  margin-top: 8px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  pointer-events: auto;
+  border-left-width: 3px;
 }
 
 .strengthsInsight:hover {
@@ -633,17 +680,43 @@
 .concernsInsight {
   background-color: #fef3f2;
   border-left: 3px solid #f59e0b;
-  padding: 12px;
   border-radius: 6px;
-  margin-top: 8px;
   text-align: left;
   min-width: 280px;
   max-width: 400px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  animation: expandContent 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: top center;
-  will-change: transform, opacity;
-  transition: box-shadow 0.2s ease;
+  will-change: max-height, margin, padding;
+  overflow: hidden;
+
+  /* Collapsed state */
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 12px;
+  padding-right: 12px;
+  opacity: 0;
+  pointer-events: none;
+  border-left-width: 0;
+
+  transition: 
+    max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    padding-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease-in-out,
+    border-left-width 0.2s ease;
+}
+
+.concernsInsight.visible {
+  max-height: 800px;
+  opacity: 1;
+  margin-top: 8px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  pointer-events: auto;
+  border-left-width: 3px;
 }
 
 .concernsInsight:hover {
@@ -776,12 +849,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   color: white;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .resumeLink {
@@ -801,16 +874,17 @@
 .resumeButton {
   display: inline-flex;
   align-items: center;
-  padding: 8px 16px;
+  padding: 6px 12px;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
   border: none;
   border-radius: 8px;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+  white-space: nowrap;
 }
 
 .resumeButton:hover {
@@ -1144,3 +1218,66 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Responsive adjustments for laptops and smaller desktop screens */
+@media (max-width: 1440px) {
+  .candidateTable th,
+  .candidateTable td {
+    padding: 12px 8px;
+    font-size: 13px;
+  }
+
+  .aiInsightCell {
+    min-width: 160px;
+  }
+
+  .scoreBadge {
+    width: 44px;
+    height: 44px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .candidateTable th,
+  .candidateTable td {
+    padding: 10px 6px;
+    font-size: 12px;
+  }
+
+  .aiInsightCell {
+    min-width: 140px;
+  }
+
+  .recommendationBadge {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  
+  .jobTitle {
+    font-size: 26px;
+  }
+}
+
+@media (max-height: 800px) {
+  .jobDescriptionContent {
+    max-height: 90vh;
+  }
+  
+  .jobDescriptionHeader {
+    padding: 20px 24px 16px;
+  }
+  
+  .jobDescriptionBody {
+    padding: 16px 24px;
+  }
+}
+
+
+@media (max-width: 1280px) {
+  .aiInsightCell.expanded {
+    max-width: 350px;
+    min-width: 250px;
+  }
+}
+

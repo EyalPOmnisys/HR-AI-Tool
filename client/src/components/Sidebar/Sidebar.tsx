@@ -62,11 +62,11 @@ export const Sidebar = ({ open, onToggle, activeItem, onSelect }: SidebarProps):
         <div className={styles.topSection}>
           <div className={styles.branding}>
             <div className={styles.logo} aria-hidden>
-              <img src={logo} alt='TalentPulse logo' />
+              <img src={logo} alt='OmniAI HR logo' />
             </div>
             <div className={styles.brandText}>
-              <span className={styles.projectName}>TalentPulse</span>
-              <span className={styles.projectDescriptor}>Hiring Assistant</span>
+              <span className={styles.projectName}>OmniAI HR</span>
+              <span className={styles.projectDescriptor}>AI-Powered Hiring</span>
             </div>
           </div>
         </div>

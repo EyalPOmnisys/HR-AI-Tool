@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement } from 'react'
+import { FaRegFolderOpen } from 'react-icons/fa'
 
 import { SearchInput } from '../../components/common/SearchInput'
 import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
@@ -118,8 +119,17 @@ export const Resumes = (): ReactElement => {
     if (error) {
       return <p className={`${styles.status} ${styles.error}`}>{error}</p>
     }
+    if (resumes.length === 0) {
+      return (
+        <div className={styles.emptyState}>
+          <FaRegFolderOpen className={styles.emptyIcon} />
+          <h3 className={styles.emptyTitle}>No resumes yet</h3>
+          <p className={styles.emptyText}>Upload resumes to see them here</p>
+        </div>
+      )
+    }
     if (filteredResumes.length === 0) {
-      return <p className={styles.status}>No resumes found.</p>
+      return <p className={styles.status}>No resumes found matching your search.</p>
     }
 
     return (

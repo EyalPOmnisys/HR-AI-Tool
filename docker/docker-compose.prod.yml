@@ -38,16 +38,8 @@ services:
     networks: [ai_stack]
 
   backend:
-    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.3}
-    build:
-      context: ../backend
-      dockerfile: Dockerfile.dev
+    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.8}
     restart: unless-stopped
-    volumes:
-      - ../backend/app:/app/app
-      - ../backend/alembic.ini:/app/alembic.ini
-      - ../backend/alembic:/app/alembic
-      - ../backend/data/resumes:/app/data/resumes
     env_file:
       - ./.env
     environment:
@@ -65,20 +57,14 @@ services:
     extra_hosts:
       - "Omniai:192.168.1.43"
       - "Omniai-srv:192.168.1.43"
+    volumes:
+      - ./data/resumes:/app/data/resumes
     networks: [ai_stack]
 
   resume_watcher:
-    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.3}
-    build:
-      context: ../backend
-      dockerfile: Dockerfile.dev
+    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.8}
     command: bash -lc "python -m app.workers.resume_watcher"
     restart: unless-stopped
-    volumes:
-      - ../backend/app:/app/app
-      - ../backend/alembic.ini:/app/alembic.ini
-      - ../backend/alembic:/app/alembic
-      - ../backend/data/resumes:/app/data/resumes
     env_file:
       - ./.env
     environment:
@@ -95,4 +81,15 @@ services:
     extra_hosts:
       - "Omniai:192.168.1.43"
       - "Omniai-srv:192.168.1.43"
+    volumes:
+      - ./data/resumes:/app/data/resumes
+    networks: [ai_stack]
+
+  frontend:
+    image: docker.artifactory.omnisys.local/omnisys/hr-frontend:${FRONTEND_TAG:-1.0.2}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
     networks: [ai_stack]

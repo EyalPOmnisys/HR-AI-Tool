@@ -13,7 +13,7 @@ type Props = {
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 // Helper: Get stability badge configuration
-function getStabilityBadge(score: number | undefined, verdict: string | undefined): { emoji: string; label: string; color: string; bgColor: string } {
+function getStabilityBadge(score: number | undefined): { emoji: string; label: string; color: string; bgColor: string } {
   if (!score) {
     return { emoji: '❓', label: 'Unknown', color: '#6b7280', bgColor: '#f3f4f6' }
   }
@@ -459,14 +459,14 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                           <div
                             className={styles.stabilityBadge}
                             style={{
-                              backgroundColor: getStabilityBadge(candidate.stability_score, candidate.stability_verdict).bgColor,
-                              color: getStabilityBadge(candidate.stability_score, candidate.stability_verdict).color,
+                              backgroundColor: getStabilityBadge(candidate.stability_score).bgColor,
+                              color: getStabilityBadge(candidate.stability_score).color,
                             }}
                             title={`Employment Stability: ${candidate.stability_score}%`}
                           >
-                            {getStabilityBadge(candidate.stability_score, candidate.stability_verdict).emoji}
+                            {getStabilityBadge(candidate.stability_score).emoji}
                             <span style={{ marginLeft: '4px', fontSize: '11px', fontWeight: 600 }}>
-                              {getStabilityBadge(candidate.stability_score, candidate.stability_verdict).label}
+                              {getStabilityBadge(candidate.stability_score).label}
                             </span>
                           </div>
                           <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 500 }}>
@@ -496,11 +496,9 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                               </>
                             )}
                           </button>
-                          {expandedStrengths.has(candidate.resume_id) && (
-                            <div className={`${styles.aiInsight} ${styles.strengthsInsight}`}>
+                          <div className={`${styles.aiInsight} ${styles.strengthsInsight} ${expandedStrengths.has(candidate.resume_id) ? styles.visible : ''}`}>
                               {formatAIInsight(candidate.llm_strengths)}
-                            </div>
-                          )}
+                          </div>
                         </div>
                       ) : (
                         <span style={{ color: '#999' }}>—</span>
@@ -525,11 +523,9 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                               </>
                             )}
                           </button>
-                          {expandedConcerns.has(candidate.resume_id) && (
-                            <div className={`${styles.aiInsight} ${styles.concernsInsight}`}>
+                          <div className={`${styles.aiInsight} ${styles.concernsInsight} ${expandedConcerns.has(candidate.resume_id) ? styles.visible : ''}`}>
                               {formatAIInsight(candidate.llm_concerns)}
-                            </div>
-                          )}
+                          </div>
                         </div>
                       ) : (
                         <div style={{ color: '#10b981', fontStyle: 'italic', padding: '8px' }}>
@@ -599,7 +595,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={10} className={styles.resumeCell}>
+                      <td colSpan={11} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <iframe
                             src={`${API_URL}${candidate.resume_url}`}
