@@ -115,7 +115,7 @@
   font-weight: 500;
   cursor: pointer;
   transition: background 0.25s ease, color 0.25s ease, font-weight 0.25s ease, height 0.25s ease, padding 0.25s ease, gap 0.25s ease;
-  line-height: 1;
+  line-height: 1.5;
 }
 
 .navItem:hover {
@@ -213,4 +213,9 @@
 .collapsed .brandText {
   opacity: 0;
   max-width: 0;
+}
+
+.logoutBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }

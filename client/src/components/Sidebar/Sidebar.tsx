@@ -2,13 +2,14 @@
 import type { ReactNode, ReactElement } from 'react'
 import type { ScreenId } from '../../types/navigation'
 import logo from '../../assets/logo.png'
-import { IoFileTrayStackedSharp, IoSparklesSharp } from 'react-icons/io5'
+import { IoFileTrayStackedSharp, IoSparklesSharp, IoLogOutOutline } from 'react-icons/io5'
 import { MdOutlineWorkOutline } from 'react-icons/md'
 
 type SidebarProps = {
   open: boolean
   onToggle: () => void
   onSelect: (itemId: ScreenId) => void
+  onLogout: () => void
   activeItem: ScreenId
 }
 
@@ -55,7 +56,7 @@ const ChevronIcon = () => (
   </svg>
 )
 
-export const Sidebar = ({ open, onToggle, activeItem, onSelect }: SidebarProps): ReactElement => {
+export const Sidebar = ({ open, onToggle, activeItem, onSelect, onLogout }: SidebarProps): ReactElement => {
   return (
     <aside className={`${styles.sidebar} ${open ? styles.open : styles.collapsed}`}>
       <div className={styles.inner}>
@@ -95,6 +96,18 @@ export const Sidebar = ({ open, onToggle, activeItem, onSelect }: SidebarProps):
         </nav>
 
         <div className={styles.bottomSection}>
+          <button
+            type='button'
+            className={`${styles.navItem} ${styles.logoutBtn}`}
+            title="Logout"
+            onClick={onLogout}
+          >
+            <span className={styles.navIcon} aria-hidden>
+              <IoLogOutOutline size={18} />
+            </span>
+            <span className={styles.navText}>Logout</span>
+          </button>
+
           <button
             type='button'
             className={styles.toggle}

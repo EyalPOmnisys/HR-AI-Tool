@@ -106,220 +106,222 @@ export const ResumeDetailPanel = ({
   }, [resume?.skills]);
 
   return (
-    <aside className={styles.panel} aria-label="Resume details">
-      {isLoading ? (
-        <div className={styles.stateCard}>
-          <span className={styles.loader} aria-hidden />
-          <p>Loading resume...</p>
-        </div>
-      ) : error ? (
-        <div className={styles.stateCard}>
-          <p className={styles.error}>{error}</p>
-          <button type="button" className={styles.retryButton} onClick={onRetry}>
-            Try again
-          </button>
-        </div>
-      ) : !resume ? (
-        <div className={styles.stateCard}>
-          <p>Select a resume to view its full details.</p>
-        </div>
-      ) : (
-        <div className={styles.layout}>
-          <div className={styles.infoColumn}>
-            <header className={styles.header}>
-              <div className={styles.headerLeft}>
-                <h2 className={styles.heading}>{primaryTitle}</h2>
-                {secondaryTitle && <p className={styles.subheading}>{secondaryTitle}</p>}
-              </div>
-              <div className={styles.headerActions}>
-                <button
-                  type="button"
-                  className={styles.closeButton}
-                  onClick={onClose}
-                  aria-label="Close resume panel"
-                >
-                  ×
-                </button>
-              </div>
-            </header>
+    <div className={styles.overlay} onClick={onClose}>
+      <aside className={styles.panel} aria-label="Resume details" onClick={(e) => e.stopPropagation()}>
+        {isLoading ? (
+          <div className={styles.stateCard}>
+            <span className={styles.loader} aria-hidden />
+            <p>Loading resume...</p>
+          </div>
+        ) : error ? (
+          <div className={styles.stateCard}>
+            <p className={styles.error}>{error}</p>
+            <button type="button" className={styles.retryButton} onClick={onRetry}>
+              Try again
+            </button>
+          </div>
+        ) : !resume ? (
+          <div className={styles.stateCard}>
+            <p>Select a resume to view its full details.</p>
+          </div>
+        ) : (
+          <div className={styles.layout}>
+            <div className={styles.infoColumn}>
+              <header className={styles.header}>
+                <div className={styles.headerLeft}>
+                  <h2 className={styles.heading}>{primaryTitle}</h2>
+                  {secondaryTitle && <p className={styles.subheading}>{secondaryTitle}</p>}
+                </div>
+                <div className={styles.headerActions}>
+                  <button
+                    type="button"
+                    className={styles.closeButton}
+                    onClick={onClose}
+                    aria-label="Close resume panel"
+                  >
+                    ×
+                  </button>
+                </div>
+              </header>
 
-            {(primaryYears != null || categoryChips.length > 0) && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Overview</h3>
-                <ul className={styles.metaList}>
-                  {primaryYears != null && (
-                    <li>
-                      <span className={styles.metaLabel}>Experience (primary)</span>
-                      <span className={styles.metaValue}>{primaryYears} years</span>
-                    </li>
-                  )}
-                </ul>
+              {(primaryYears != null || categoryChips.length > 0) && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Overview</h3>
+                  <ul className={styles.metaList}>
+                    {primaryYears != null && (
+                      <li>
+                        <span className={styles.metaLabel}>Experience (primary)</span>
+                        <span className={styles.metaValue}>{primaryYears} years</span>
+                      </li>
+                    )}
+                  </ul>
 
-                {categoryChips.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                    {categoryChips.map(([cat, yrs]) => (
-                      <span key={cat} className={styles.skillChip} title={`${cat}: ${yrs} years`}>
-                        {cat}: {yrs}y
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {contactItems.length > 0 && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Contact</h3>
-                <ul className={styles.contactList}>
-                  {contactItems.map((contact) => (
-                    <li key={`${contact.type}-${contact.value}`} className={styles.contactItem}>
-                      <span className={styles.contactIcon} aria-hidden>
-                        {contactIcon(contact.type)}
-                      </span>
-                      <div>
-                        <span className={styles.contactLabel}>
-                          {contact.label ? contact.label : contact.type}
-                        </span>
-                        {contact.type === 'email' ? (
-                          <a href={`mailto:${contact.value}`} className={styles.contactLink}>
-                            {contact.value}
-                          </a>
-                        ) : (
-                          (() => {
-                            const localized = localizeILPhone(contact.value);
-                            const display = formatILPhoneDisplay(contact.value) ?? (localized ?? contact.value);
-                            return (
-                              <a href={`tel:${localized ?? contact.value}`} className={styles.contactLink}>
-                                {display}
-                              </a>
-                            );
-                          })()
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {/* Skills */}
-            {resume.skills.length > 0 && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Skills</h3>
-                {skillsBySource.map(([sourceLabel, skills]) => (
-                  <div key={sourceLabel} style={{ marginBottom: 16 }}>
-                    <h4 style={{ 
-                      fontSize: '0.85rem', 
-                      color: '#64748b', 
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: 8,
-                      fontWeight: 600
-                    }}>
-                      {sourceLabel}
-                    </h4>
-                    <div className={styles.skillChips}>
-                      {skills.map((skill, idx) => (
-                        <span 
-                          key={`${skill.name}-${idx}`} 
-                          className={styles.skillChip}
-                          title={skill.category ? `${skill.category} | Weight: ${skill.weight}` : `Weight: ${skill.weight}`}
-                        >
-                          {skill.name}
+                  {categoryChips.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                      {categoryChips.map(([cat, yrs]) => (
+                        <span key={cat} className={styles.skillChip} title={`${cat}: ${yrs} years`}>
+                          {cat}: {yrs}y
                         </span>
                       ))}
                     </div>
-                  </div>
-                ))}
-              </section>
-            )}
+                  )}
+                </section>
+              )}
 
-            {/* Experience */}
-            {resume.experience.length > 0 && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Experience</h3>
-                <ul className={styles.timeline}>
-                  {resume.experience.map((role, index) => (
-                    <li key={`${role.title}-${role.company}-${index}`} className={styles.timelineItem}>
-                      <div className={styles.timelineHeading}>
-                        <h4 className={styles.roleTitle}>{role.title || 'Role'}</h4>
-                        {role.company && <span className={styles.company}>{role.company}</span>}
+              {contactItems.length > 0 && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Contact</h3>
+                  <ul className={styles.contactList}>
+                    {contactItems.map((contact) => (
+                      <li key={`${contact.type}-${contact.value}`} className={styles.contactItem}>
+                        <span className={styles.contactIcon} aria-hidden>
+                          {contactIcon(contact.type)}
+                        </span>
+                        <div>
+                          <span className={styles.contactLabel}>
+                            {contact.label ? contact.label : contact.type}
+                          </span>
+                          {contact.type === 'email' ? (
+                            <a href={`mailto:${contact.value}`} className={styles.contactLink}>
+                              {contact.value}
+                            </a>
+                          ) : (
+                            (() => {
+                              const localized = localizeILPhone(contact.value);
+                              const display = formatILPhoneDisplay(contact.value) ?? (localized ?? contact.value);
+                              return (
+                                <a href={`tel:${localized ?? contact.value}`} className={styles.contactLink}>
+                                  {display}
+                                </a>
+                              );
+                            })()
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* Skills */}
+              {resume.skills.length > 0 && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Skills</h3>
+                  {skillsBySource.map(([sourceLabel, skills]) => (
+                    <div key={sourceLabel} style={{ marginBottom: 16 }}>
+                      <h4 style={{ 
+                        fontSize: '0.85rem', 
+                        color: '#64748b', 
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        marginBottom: 8,
+                        fontWeight: 600
+                      }}>
+                        {sourceLabel}
+                      </h4>
+                      <div className={styles.skillChips}>
+                        {skills.map((skill, idx) => (
+                          <span 
+                            key={`${skill.name}-${idx}`} 
+                            className={styles.skillChip}
+                            title={skill.category ? `${skill.category} | Weight: ${skill.weight}` : `Weight: ${skill.weight}`}
+                          >
+                            {skill.name}
+                          </span>
+                        ))}
                       </div>
-                      <div className={styles.timelineMeta}>
-                        {(role.startDate || role.endDate) && (
-                          <span>
-                            {role.startDate || 'Unknown'} &ndash; {role.endDate || 'Present'}
+                    </div>
+                  ))}
+                </section>
+              )}
+
+              {/* Experience */}
+              {resume.experience.length > 0 && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Experience</h3>
+                  <ul className={styles.timeline}>
+                    {resume.experience.map((role, index) => (
+                      <li key={`${role.title}-${role.company}-${index}`} className={styles.timelineItem}>
+                        <div className={styles.timelineHeading}>
+                          <h4 className={styles.roleTitle}>{role.title || 'Role'}</h4>
+                          {role.company && <span className={styles.company}>{role.company}</span>}
+                        </div>
+                        <div className={styles.timelineMeta}>
+                          {(role.startDate || role.endDate) && (
+                            <span>
+                              {role.startDate || 'Unknown'} &ndash; {role.endDate || 'Present'}
+                            </span>
+                          )}
+                          {role.durationYears != null && <span>{role.durationYears} yrs</span>}
+                          {role.location && <span>{role.location}</span>}
+                        </div>
+                        {role.tech.length > 0 && (
+                          <div className={styles.techTags}>
+                            {role.tech.map((tech) => (
+                              <span key={tech} className={styles.techTag}>
+                                {tech}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {role.bullets.length > 0 && (
+                          <ul className={styles.bulletList}>
+                            {role.bullets.map((bullet, idx) => (
+                              <li key={idx}>{bullet}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* Education */}
+              {resume.education.length > 0 && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Education</h3>
+                  <ul className={styles.educationList}>
+                    {resume.education.map((item, index) => (
+                      <li key={`${item.institution}-${index}`} className={styles.educationItem}>
+                        <div>
+                          <h4 className={styles.educationInstitution}>{item.institution}</h4>
+                          <p className={styles.educationDetails}>
+                            {[item.degree, item.field].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        {(item.startDate || item.endDate) && (
+                          <span className={styles.educationDates}>
+                            {item.startDate || 'Unknown'} &ndash; {item.endDate || 'Present'}
                           </span>
                         )}
-                        {role.durationYears != null && <span>{role.durationYears} yrs</span>}
-                        {role.location && <span>{role.location}</span>}
-                      </div>
-                      {role.tech.length > 0 && (
-                        <div className={styles.techTags}>
-                          {role.tech.map((tech) => (
-                            <span key={tech} className={styles.techTag}>
-                              {tech}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {role.bullets.length > 0 && (
-                        <ul className={styles.bulletList}>
-                          {role.bullets.map((bullet, idx) => (
-                            <li key={idx}>{bullet}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
-            {/* Education */}
-            {resume.education.length > 0 && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Education</h3>
-                <ul className={styles.educationList}>
-                  {resume.education.map((item, index) => (
-                    <li key={`${item.institution}-${index}`} className={styles.educationItem}>
-                      <div>
-                        <h4 className={styles.educationInstitution}>{item.institution}</h4>
-                        <p className={styles.educationDetails}>
-                          {[item.degree, item.field].filter(Boolean).join(' · ')}
-                        </p>
-                      </div>
-                      {(item.startDate || item.endDate) && (
-                        <span className={styles.educationDates}>
-                          {item.startDate || 'Unknown'} &ndash; {item.endDate || 'Present'}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+              {/* Languages */}
+              {resume.languages.length > 0 && (
+                <section className={styles.section}>
+                  <h3 className={styles.sectionTitle}>Languages</h3>
+                  <p className={styles.metaValue}>{resume.languages.join(', ')}</p>
+                </section>
+              )}
+            </div>
 
-            {/* Languages */}
-            {resume.languages.length > 0 && (
-              <section className={styles.section}>
-                <h3 className={styles.sectionTitle}>Languages</h3>
-                <p className={styles.metaValue}>{resume.languages.join(', ')}</p>
-              </section>
-            )}
+            <div className={styles.pdfWrapper}>
+              <iframe
+                key={srcForEmbed}
+                src={srcForEmbed}
+                className={styles.pdfFrame}
+                aria-label={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
+                title={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
+              />
+            </div>
           </div>
-
-          <div className={styles.pdfWrapper}>
-            <iframe
-              key={srcForEmbed}
-              src={srcForEmbed}
-              className={styles.pdfFrame}
-              aria-label={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
-              title={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
-            />
-          </div>
-        </div>
-      )}
-    </aside>
+        )}
+      </aside>
+    </div>
   );
 };

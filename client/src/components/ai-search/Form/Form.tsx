@@ -64,7 +64,7 @@ export default function Form({
           {/* Left sidebar - Form controls */}
           <div className={styles.left}>
             <div className={styles.formSection}>
-              <h3 className={styles.sectionTitle}>Search Configuration</h3>
+              <h3 className={styles.sectionTitle}>Candidate Search</h3>
 
               <div className={styles.field}>
                 <label htmlFor="jobSelect" className={styles.label}>
@@ -112,7 +112,7 @@ export default function Form({
                   className={styles.primary}
                   disabled={!selectedJobId}
                 >
-                  Generate AI Shortlist
+                  Find Matching Candidates
                 </button>
                 {error && (
                   <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#fee', borderRadius: '8px', color: '#c00' }}>

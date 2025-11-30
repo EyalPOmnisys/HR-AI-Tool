@@ -19,6 +19,8 @@ export type ApiResumeSummary = {
   resume_url: string;
   // NEW:
   years_by_category?: Record<string, number>; // optional on summary
+  skills?: string[];
+  summary?: string | null;
 };
 
 export type ApiResumeListResponse = {
@@ -76,6 +78,8 @@ export type ResumeSummary = {
   resumeUrl: string;
   // NEW:
   yearsByCategory: Record<string, number>;
+  skills: string[];
+  summary: string | null;
 };
 
 export type ResumeListResponse = {

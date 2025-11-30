@@ -1,5 +1,5 @@
-import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
-import { FaUser, FaBriefcase, FaClock, FaExternalLinkAlt } from 'react-icons/fa'
+import type { KeyboardEvent, ReactElement } from 'react'
+import { FaUser, FaBriefcase, FaClock } from 'react-icons/fa'
 import type { ResumeSummary } from '../../../types/resume'
 import styles from './ResumeCard.module.css'
 
@@ -9,7 +9,7 @@ type ResumeCardProps = {
 }
 
 export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement => {
-  const { name, profession, yearsOfExperience, resumeUrl } = resume
+  const { name, profession, yearsOfExperience } = resume
   const displayName = name ?? 'Unnamed candidate'
   // If profession is missing, show a neutral fallback
   const displayProfession = profession ?? 'Candidate'
@@ -30,10 +30,6 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
       event.preventDefault()
       handleSelect()
     }
-  }
-
-  const handleLinkClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    event.stopPropagation()
   }
 
   return (
@@ -68,20 +64,6 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
             <span>{yearsLabel}</span>
           </div>
         </div>
-      </div>
-
-      <div className={styles.footer}>
-        <a
-          className={styles.link}
-          href={resumeUrl}
-          target="_blank"
-          rel="noreferrer"
-          onClick={handleLinkClick}
-          title="View resume"
-        >
-          <span>View CV</span>
-          <FaExternalLinkAlt className={styles.linkIcon} />
-        </a>
       </div>
     </article>
   )

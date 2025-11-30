@@ -4,13 +4,21 @@ import { FaRegFolderOpen } from 'react-icons/fa'
 import { SearchInput } from '../../components/common/SearchInput'
 import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
 import { ResumeCard } from '../../components/Resume/ResumeCard/ResumeCard'
+import { ResumeFilters, type FilterState } from '../../components/Resume/ResumeFilters/ResumeFilters'
 import { getResumeDetail, listResumes } from '../../services/resumes'
 import type { ResumeDetail, ResumeSummary } from '../../types/resume'
 import styles from './Resumes.module.css'
 
 export const Resumes = (): ReactElement => {
-  const [resumes, setResumes] = useState<ResumeSummary[]>([])
+  const [resumes, setResumes] = useState<(ResumeSummary & { searchableText?: string })[]>([])
   const [query, setQuery] = useState<string>('')
+  const [filters, setFilters] = useState<FilterState>({
+    profession: '',
+    minExperience: '',
+    maxExperience: '',
+    skills: [],
+    freeText: ''
+  })
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null)
@@ -26,17 +34,71 @@ export const Resumes = (): ReactElement => {
       setIsLoading(true)
       try {
         const response = await listResumes(0, 100)
+        if (!isMounted) return
+
+        setResumes(response.items)
+        setError(null)
+        setIsLoading(false)
+
+        // Fetch details for all resumes to populate skills, summary, and searchable text
+        const detailPromises = response.items.map(async (item) => {
+          try {
+            const detail = await getResumeDetail(item.id)
+
+            const experienceText = detail.experience
+              .map((e) =>
+                [e.company, e.title, e.location, ...(e.bullets || []), ...(e.tech || [])]
+                  .filter(Boolean)
+                  .join(' ')
+              )
+              .join(' ')
+
+            const educationText = detail.education
+              .map((e) => [e.institution, e.degree, e.field].filter(Boolean).join(' '))
+              .join(' ')
+
+            const searchableText = [
+              detail.summary,
+              experienceText,
+              educationText,
+              detail.contacts.map((c) => c.value).join(' '),
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+
+            return {
+              id: item.id,
+              skills: detail.skills.map((s) => s.name),
+              summary: detail.summary,
+              searchableText,
+            }
+          } catch {
+            return null
+          }
+        })
+
+        const details = await Promise.all(detailPromises)
+
         if (isMounted) {
-          setResumes(response.items)
-          setError(null)
+          setResumes((prev) =>
+            prev.map((r) => {
+              const d = details.find((det) => det?.id === r.id)
+              return d
+                ? {
+                    ...r,
+                    skills: d.skills,
+                    summary: d.summary,
+                    searchableText: d.searchableText,
+                  }
+                : r
+            })
+          )
         }
       } catch (err) {
         if (isMounted) {
           const message = err instanceof Error ? err.message : 'Failed to load resumes'
           setError(message)
-        }
-      } finally {
-        if (isMounted) {
           setIsLoading(false)
         }
       }
@@ -101,16 +163,61 @@ export const Resumes = (): ReactElement => {
   }, [selectedResumeId, detailReloadKey])
 
   const filteredResumes = useMemo(() => {
-    if (!query.trim()) {
-      return resumes
+    let result = resumes
+
+    if (query.trim()) {
+      const normalized = query.trim().toLowerCase()
+      result = result.filter((resume) => {
+        const nameMatch = resume.name?.toLowerCase().includes(normalized)
+        const professionMatch = resume.profession?.toLowerCase().includes(normalized)
+        return Boolean(nameMatch || professionMatch)
+      })
     }
-    const normalized = query.trim().toLowerCase()
-    return resumes.filter((resume) => {
-      const nameMatch = resume.name?.toLowerCase().includes(normalized)
-      const professionMatch = resume.profession?.toLowerCase().includes(normalized)
-      return Boolean(nameMatch || professionMatch)
-    })
-  }, [resumes, query])
+
+    if (filters.profession) {
+      const normProf = filters.profession.toLowerCase()
+      result = result.filter(r => r.profession?.toLowerCase().includes(normProf))
+    }
+
+    if (filters.minExperience) {
+      const min = parseFloat(filters.minExperience)
+      if (!isNaN(min)) {
+        result = result.filter(r => (r.yearsOfExperience ?? 0) >= min)
+      }
+    }
+
+    if (filters.maxExperience) {
+      const max = parseFloat(filters.maxExperience)
+      if (!isNaN(max)) {
+        result = result.filter(r => (r.yearsOfExperience ?? 0) <= max)
+      }
+    }
+
+    if (filters.skills.length > 0) {
+      result = result.filter(r => {
+        if (!r.skills || r.skills.length === 0) return false
+        const resumeSkills = r.skills.map(s => s.toLowerCase())
+        // Match if resume has ALL selected skills (AND logic)
+        return filters.skills.every(filterSkill => 
+          resumeSkills.some(rs => rs.includes(filterSkill.toLowerCase()))
+        )
+      })
+    }
+
+    if (filters.freeText) {
+      const text = filters.freeText.toLowerCase()
+      result = result.filter((r) => {
+        const inSummary = r.summary?.toLowerCase().includes(text)
+        const inName = r.name?.toLowerCase().includes(text)
+        const inProfession = r.profession?.toLowerCase().includes(text)
+        const inSkills = r.skills?.some((s) => s.toLowerCase().includes(text))
+        const inSearchable = r.searchableText?.includes(text)
+        return Boolean(inSummary || inName || inProfession || inSkills || inSearchable)
+      })
+    }
+
+    return result
+  }, [resumes, query, filters])
 
   const listContent = useMemo(() => {
     if (isLoading) {
@@ -161,6 +268,7 @@ export const Resumes = (): ReactElement => {
           className={styles.search}
           aria-label="Search resumes"
         />
+        <ResumeFilters onFilterChange={setFilters} initialFilters={filters} />
       </header>
 
       <div className={`${styles.body} ${isPanelOpen ? styles.bodyWithPanel : ''}`}>

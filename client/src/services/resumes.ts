@@ -30,6 +30,8 @@ const mapSummary = (item: ApiResumeSummary): ResumeSummary => ({
   resumeUrl: normalizeUrl(item.resume_url),
   // NEW:
   yearsByCategory: item.years_by_category ?? {},
+  skills: item.skills ?? [],
+  summary: item.summary ?? null,
 });
 
 export async function listResumes(offset = 0, limit = 50): Promise<ResumeListResponse> {
