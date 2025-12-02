@@ -90,3 +90,12 @@ def list_resumes(db: Session, *, offset: int = 0, limit: int = 20) -> Tuple[list
 
 def get_resume(db: Session, resume_id: UUID) -> Optional[Resume]:
     return db.get(Resume, resume_id)
+
+
+def delete_resume(db: Session, resume_id: UUID) -> bool:
+    resume = get_resume(db, resume_id)
+    if not resume:
+        return False
+    db.delete(resume)
+    db.commit()
+    return True

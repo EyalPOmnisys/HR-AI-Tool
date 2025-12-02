@@ -11,23 +11,23 @@ Return ONLY valid JSON matching this exact structure:
     {
       "category": "tech" | "military" | "hospitality" | "other",
       "normalized_roles": [string],        // Standardized role titles (e.g., ["Software Engineer", "Backend Developer"])
-      "original_roles": [string],          // Original titles as they appear in resume
+      "original_roles": [string],          // Titles used in the resume (translated to English if necessary)
       "members": [
         {
-          "title": string|null,            // Job title
-          "company": string|null,          // Company/organization name
+          "title": string|null,            // Job title (in English)
+          "company": string|null,          // Company/organization name (in English)
           "start_date": string|null,       // Start date as provided
           "end_date": string|null          // End date ("present" for current roles)
         }
       ],
       "spans": [
         {
-          "source": string,                // Descriptive label (e.g., "Meta - Software Engineer")
+          "source": string,                // Descriptive label (e.g., "Meta - Software Engineer") - in English
           "years": number                  // Duration in years (1 decimal place)
         }
       ],
       "total_years": number,               // Sum of all spans in this cluster (1 decimal)
-      "reasoning": string,                 // Explanation of categorization and calculations
+      "reasoning": string,                 // Explanation of categorization and calculations (in English)
       "confidence": number                 // 0.0-1.0 confidence score
     }
   ],
@@ -122,11 +122,11 @@ Everything else: sales, marketing, finance, admin, education, retail, etc.
 4. **Role Normalization:**
    - Fix obvious typos: "SOFTWARE ENGAINER" → "Software Engineer"
    - Standardize variations: "Full Stack Dev" → "Full Stack Developer"
-   - Keep original language for non-English titles: "מהנדס תוכנה" → keep as is
+   - Translate non-English titles to English: "מהנדס תוכנה" → "Software Engineer"
    - Never invent or add information not in the source
 
 5. **Reasoning:**
-   Provide clear, concise explanations:
+   Provide clear, concise explanations in English:
    - "Included: Technical role at established tech company with clear dates"
    - "Excluded: Personal project without formal employment"
    - "Clustered as TECH: Strong technical stack (Python, AWS, Docker) despite ambiguous title"

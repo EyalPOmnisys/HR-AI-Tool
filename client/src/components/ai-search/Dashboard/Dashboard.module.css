@@ -789,51 +789,6 @@
   }
 }
 
-.recommendationCell {
-  text-align: center;
-}
-
-.recommendationBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  border: 1px solid;
-}
-
-.recommendationBadge.hire_immediately {
-  background-color: #d1fae5;
-  color: #065f46;
-  border-color: #6ee7b7;
-}
-
-.recommendationBadge.strong_interview {
-  background-color: #d1fae5;
-  color: #047857;
-  border-color: #86efac;
-}
-
-.recommendationBadge.interview {
-  background-color: #dbeafe;
-  color: #1e40af;
-  border-color: #93c5fd;
-}
-
-.recommendationBadge.maybe {
-  background-color: #fef3c7;
-  color: #92400e;
-  border-color: #fde68a;
-}
-
-.recommendationBadge.pass {
-  background-color: #fee2e2;
-  color: #991b1b;
-  border-color: #fca5a5;
-}
-
 .roleSpan {
   font-size: 12px;
   color: #6b7280;
@@ -1248,11 +1203,6 @@
   .aiInsightCell {
     min-width: 140px;
   }
-
-  .recommendationBadge {
-    padding: 4px 8px;
-    font-size: 11px;
-  }
   
   .jobTitle {
     font-size: 26px;
@@ -1274,10 +1224,54 @@
 }
 
 
-@media (max-width: 1280px) {
-  .aiInsightCell.expanded {
-    max-width: 350px;
-    min-width: 250px;
-  }
+.statusContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.statusSelect {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  text-align: center;
+  min-width: 130px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='currentColor' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+
+.statusSelect:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+.statusSelect:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  border-color: #3b82f6;
+}
+
+.statusSelect:active {
+  transform: translateY(0);
+}
+
+.statusSelect option {
+  padding: 8px;
+  background: white;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.resumeRow {
+  background-color: #f8fafc;
 }
 

@@ -10,7 +10,13 @@ router = APIRouter(prefix="/match", tags=["match"])
 @router.post("/run", response_model=MatchRunResponse)
 async def run_match(payload: MatchRunRequest, db: AsyncSession = Depends(get_async_session)):
     try:
-        res = await MatchService.run(db, payload.job_id, payload.top_n, payload.min_threshold)
+        res = await MatchService.run(
+            db, 
+            payload.job_id, 
+            payload.top_n, 
+            payload.min_threshold,
+            payload.status_filter
+        )
         return MatchRunResponse(**res)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

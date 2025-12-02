@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # --- CV analysis ---
     USE_LLM_EXTRACTION: bool = True
-    EXTRACTION_VERSION: int = 2
+    EXTRACTION_VERSION: int = 3
     EXPERIENCE_CLUSTERING_VERSION: int = 2
 
     class Config:

@@ -4,6 +4,7 @@ export type MatchRunRequest = {
   job_id: string;
   top_n?: number; // User selects 1-20, default 10
   min_threshold?: number; // Not used anymore
+  status_filter?: string[]; // Filter by candidate status
 };
 
 export type RAGBreakdown = {
@@ -23,15 +24,16 @@ export type CandidateRow = {
   email: string | null;
   phone: string | null;
   resume_url: string | null;
+  file_name?: string | null;
   rag_breakdown?: RAGBreakdown;
   rag_score?: number;
   llm_score?: number;
   llm_verdict?: string;
   llm_strengths?: string;
   llm_concerns?: string;
-  llm_recommendation?: string;
   stability_score?: number;
   stability_verdict?: string;
+  status?: string; // new, reviewed, shortlisted, rejected
 };
 
 export type MatchRunResponse = {

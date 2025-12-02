@@ -87,6 +87,60 @@
   z-index: 10000;
 }
 
+/* Status Filter */
+.statusFilter {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+}
+
+.statusCheckbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-radius: 4px;
+}
+
+.statusCheckbox:hover {
+  background: #f0f9ff;
+}
+
+.statusCheckbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.statusLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  flex: 1;
+  line-height: 1;
+}
+
+.statusIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.hint {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  display: block;
+}
+
 .actions {
   margin-top: 8px;
 }

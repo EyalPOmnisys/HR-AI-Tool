@@ -3,7 +3,8 @@
 // Shows Primary years (if provided) and a per-category breakdown (chips).
 // Falls back to legacy yearsOfExperience when primaryYears is null.
 // -----------------------------------------------------------------------------
-import { useMemo, type ReactElement } from 'react';
+import { useMemo, type ReactElement, useEffect, useRef } from 'react';
+import { renderAsync } from 'docx-preview';
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone';
 
 import type { ResumeDetail, SkillItem } from '../../../types/resume';
@@ -56,6 +57,44 @@ export const ResumeDetailPanel = ({
     // For DOCX/TXT (now returned as HTML), just add cache buster
     return `${resume.resumeUrl}${sep}t=${encodeURIComponent(stamp)}`;
   }, [resume?.resumeUrl, resume?.updatedAt, resume?.mimeType, resume?.fileName]);
+
+  const isDocx = useMemo(() => {
+    return resume?.mimeType?.toLowerCase().includes('wordprocessingml') || 
+           resume?.fileName?.toLowerCase().endsWith('.docx');
+  }, [resume?.mimeType, resume?.fileName]);
+
+  const docxContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isDocx && srcForEmbed && docxContainerRef.current) {
+      const container = docxContainerRef.current;
+      container.innerHTML = ''; // Clear previous content
+      
+      fetch(srcForEmbed)
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to load DOCX file');
+          return res.blob();
+        })
+        .then(blob => renderAsync(blob, container, container, {
+          className: styles.docxWrapper,
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          breakPages: true,
+          ignoreLastRenderedPageBreak: true,
+          experimental: false,
+          trimXmlDeclaration: true,
+          useBase64URL: false,
+          renderChanges: false,
+          debug: false,
+        }))
+        .catch(err => {
+          console.error("Failed to render DOCX", err);
+          container.innerHTML = `<p class="${styles.error}">Failed to load document preview.</p>`;
+        });
+    }
+  }, [isDocx, srcForEmbed]);
 
   const contactItems = useMemo(
     () => (resume?.contacts ?? []).filter((c) => c.type === 'email' || c.type === 'phone'),
@@ -311,13 +350,27 @@ export const ResumeDetailPanel = ({
             </div>
 
             <div className={styles.pdfWrapper}>
-              <iframe
-                key={srcForEmbed}
-                src={srcForEmbed}
-                className={styles.pdfFrame}
-                aria-label={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
-                title={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
-              />
+              {isDocx ? (
+                <div 
+                  ref={docxContainerRef} 
+                  className={styles.docxContainer}
+                  style={{ 
+                    height: '100%', 
+                    overflow: 'auto', 
+                    backgroundColor: '#f8fafc',
+                    padding: '20px' 
+                  }} 
+                />
+              ) : (
+                <iframe
+                  key={srcForEmbed}
+                  src={srcForEmbed}
+                  className={styles.pdfFrame}
+                  aria-label={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
+                  title={resume.fileName ? `Resume preview - ${resume.fileName}` : 'Resume preview'}
+                  allow="fullscreen"
+                />
+              )}
             </div>
           </div>
         )}

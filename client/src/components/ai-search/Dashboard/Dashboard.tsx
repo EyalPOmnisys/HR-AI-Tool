@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import styles from './Dashboard.module.css'
 import type { MatchRunResponse } from '../../../types/match'
 import type { ApiJob } from '../../../types/job'
-import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp, FiHelpCircle, FiX } from 'react-icons/fi'
+import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp, FiHelpCircle, FiX, FiCheckCircle, FiXCircle, FiEye, FiClock } from 'react-icons/fi'
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
+import { renderAsync } from 'docx-preview'
+import { updateCandidateStatus } from '../../../services/jobs'
 
 type Props = {
   matchResults: MatchRunResponse
@@ -11,6 +13,68 @@ type Props = {
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
+// Helper: Resume Preview Component
+const ResumePreview = ({ url, fileName }: { url: string; fileName?: string | null }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDocx = fileName?.toLowerCase().endsWith('.docx');
+
+  useEffect(() => {
+    if (isDocx && url && containerRef.current) {
+      const container = containerRef.current;
+      container.innerHTML = ''; // Clear previous content
+      
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to load DOCX file');
+          return res.blob();
+        })
+        .then(blob => renderAsync(blob, container, container, {
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          breakPages: true,
+          ignoreLastRenderedPageBreak: true,
+          experimental: false,
+          trimXmlDeclaration: true,
+          useBase64URL: false,
+          renderChanges: false,
+          debug: false,
+        }))
+        .catch(err => {
+          console.error("Failed to render DOCX", err);
+          container.innerHTML = `<p style="color: #ef4444; padding: 20px; text-align: center;">Failed to load document preview.</p>`;
+        });
+    }
+  }, [isDocx, url]);
+
+  if (isDocx) {
+    return (
+      <div 
+        ref={containerRef} 
+        style={{ 
+          height: '800px', 
+          overflow: 'auto', 
+          backgroundColor: '#f8fafc',
+          padding: '40px',
+          width: '100%',
+          borderRadius: '8px',
+          boxShadow: 'inset 0 2px 4px 0 rgb(0 0 0 / 0.05)'
+        }} 
+      />
+    );
+  }
+
+  return (
+    <iframe
+      src={url}
+      className={styles.resumeIframe}
+      title="Resume Preview"
+      allow="fullscreen"
+    />
+  );
+};
 
 // Helper: Get stability badge configuration
 function getStabilityBadge(score: number | undefined): { emoji: string; label: string; color: string; bgColor: string } {
@@ -99,12 +163,17 @@ function formatAIInsight(text: string | undefined | null): React.ReactNode {
 
 
 export default function Dashboard({ matchResults, selectedJob }: Props) {
-  const candidates = matchResults.candidates;
+  const [candidates, setCandidates] = useState(matchResults.candidates);
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
   const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
   const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
   const [showJobDescription, setShowJobDescription] = useState(false);
   
+  // Update local state when props change
+  useEffect(() => {
+    setCandidates(matchResults.candidates);
+  }, [matchResults]);
+
   const avgScore =
     candidates.length > 0
       ? Math.round(candidates.reduce((sum, c) => sum + c.match, 0) / candidates.length)
@@ -112,6 +181,35 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
 
   const toggleResume = (resumeId: string) => {
     setExpandedResumeId(expandedResumeId === resumeId ? null : resumeId);
+  };
+
+  const handleStatusChange = async (resumeId: string, newStatus: string) => {
+    if (!selectedJob) return;
+    
+    try {
+      // Optimistic update
+      setCandidates(prev => prev.map(c => 
+        c.resume_id === resumeId ? { ...c, status: newStatus } : c
+      ));
+      
+      await updateCandidateStatus(selectedJob.id, resumeId, newStatus);
+    } catch (error) {
+      console.error("Failed to update status:", error);
+      // Revert on error (could be improved with better error handling)
+    }
+  };
+
+  const getStatusBadge = (status: string | undefined) => {
+    switch (status) {
+      case 'shortlisted':
+        return { icon: <FiCheckCircle />, label: 'Shortlisted', color: '#059669', bg: '#d1fae5' };
+      case 'rejected':
+        return { icon: <FiXCircle />, label: 'Rejected', color: '#dc2626', bg: '#fee2e2' };
+      case 'reviewed':
+        return { icon: <FiEye />, label: 'Reviewed', color: '#2563eb', bg: '#dbeafe' };
+      default:
+        return { icon: <FiClock />, label: 'New', color: '#4b5563', bg: '#f3f4f6' };
+    }
   };
 
   const toggleStrengths = (resumeId: string) => {
@@ -426,10 +524,10 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                 <th>🏢 Stability</th>
                 <th>💪 Strengths</th>
                 <th>⚠️ Concerns</th>
-                <th>📝 Recommendation</th>
                 <th>✉️ Email</th>
                 <th>📞 Phone</th>
                 <th>📄 Resume</th>
+                <th>📊 Status</th>
               </tr>
             </thead>
             <tbody>
@@ -533,19 +631,6 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                         </div>
                       )}
                     </td>
-                    <td className={styles.recommendationCell}>
-                      {candidate.llm_recommendation ? (
-                        <span className={`${styles.recommendationBadge} ${styles[candidate.llm_recommendation]}`}>
-                          {candidate.llm_recommendation === 'hire_immediately' && '🚀 Hire Immediately'}
-                          {candidate.llm_recommendation === 'strong_interview' && '💼 Strong Interview'}
-                          {candidate.llm_recommendation === 'interview' && '📞 Interview'}
-                          {candidate.llm_recommendation === 'maybe' && '🤔 Maybe'}
-                          {candidate.llm_recommendation === 'pass' && '❌ Pass'}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#999' }}>—</span>
-                      )}
-                    </td>
                     <td>
                       {candidate.email ? (
                         <a href={`mailto:${candidate.email}`} className={styles.contactLink}>
@@ -592,15 +677,33 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                         <span style={{ color: '#999' }}>—</span>
                       )}
                     </td>
+                    <td>
+                      <div className={styles.statusContainer}>
+                        <select
+                          className={styles.statusSelect}
+                          value={candidate.status || 'new'}
+                          onChange={(e) => handleStatusChange(candidate.resume_id, e.target.value)}
+                          style={{
+                            backgroundColor: getStatusBadge(candidate.status).bg,
+                            color: getStatusBadge(candidate.status).color,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="new">🕐 New</option>
+                          <option value="reviewed">👁️ Reviewed</option>
+                          <option value="shortlisted">✅ Shortlisted</option>
+                          <option value="rejected">❌ Rejected</option>
+                        </select>
+                      </div>
+                    </td>
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
                       <td colSpan={11} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
-                          <iframe
-                            src={`${API_URL}${candidate.resume_url}`}
-                            className={styles.resumeIframe}
-                            title={`Resume of ${candidate.candidate}`}
+                          <ResumePreview 
+                            url={`${API_URL}${candidate.resume_url}`} 
+                            fileName={candidate.file_name} 
                           />
                         </div>
                       </td>

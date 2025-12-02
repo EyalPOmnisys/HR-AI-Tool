@@ -83,7 +83,9 @@ async def vector_search_candidates(
     session: AsyncSession,
     job_embedding: np.ndarray,
     limit: Optional[int] = None,
-    min_threshold: Optional[float] = None
+    min_threshold: Optional[float] = None,
+    job_id: Optional[UUID] = None,
+    status_filter: Optional[List[str]] = None
 ) -> List[dict]:
     """
     Fast vector search to find candidate resumes using pgvector.
@@ -94,18 +96,34 @@ async def vector_search_candidates(
         job_embedding: Job embedding vector
         limit: Maximum number of candidates to return (None = all)
         min_threshold: Minimum cosine similarity threshold (None = no threshold)
+        job_id: Optional Job ID for status filtering
+        status_filter: Optional list of statuses to filter by
         
     Returns:
         List of dicts with resume_id, avg_similarity, chunk_count
     """
     # Build query with optional threshold and limit
     where_clause = "WHERE r.embedding IS NOT NULL"
+    join_clause = ""
+    
+    params = {"job_vec": str(job_embedding.tolist() if hasattr(job_embedding, 'tolist') else job_embedding)}
+    
     if min_threshold is not None:
         where_clause += f" AND 1 - (r.embedding <=> CAST(:job_vec AS vector)) >= :min_threshold"
+        params["min_threshold"] = min_threshold
+        
+    if status_filter and job_id:
+        # Join with job_candidates to check status
+        join_clause = "LEFT JOIN job_candidates jc ON jc.resume_id = r.id AND jc.job_id = :job_id"
+        # Filter by status (treating NULL as 'new')
+        where_clause += " AND COALESCE(jc.status, 'new') = ANY(:status_filter)"
+        params["job_id"] = job_id
+        params["status_filter"] = status_filter
     
     limit_clause = ""
     if limit is not None:
         limit_clause = "LIMIT :limit"
+        params["limit"] = limit
     
     # Optimized Query: Uses the main 'resumes' table embedding (Stronger signal for overall fit)
     # We subquery chunk_count to maintain compatibility with your existing return structure
@@ -115,23 +133,17 @@ async def vector_search_candidates(
             1 - (r.embedding <=> CAST(:job_vec AS vector)) as avg_similarity,
             (SELECT COUNT(*) FROM resume_chunks rc WHERE rc.resume_id = r.id) as chunk_count
         FROM resumes r
+        {join_clause}
         {where_clause}
         ORDER BY avg_similarity DESC
         {limit_clause}
     """)
     
-    job_vec_str = str(job_embedding.tolist() if hasattr(job_embedding, 'tolist') else job_embedding)
-    
-    params = {"job_vec": job_vec_str}
-    if min_threshold is not None:
-        params["min_threshold"] = min_threshold
-    if limit is not None:
-        params["limit"] = limit
-    
     results = (await session.execute(sql, params)).mappings().all()
     
     threshold_info = f"threshold={min_threshold:.3f}" if min_threshold else "no threshold"
-    logger.info(f"Vector search found {len(results)} candidates ({threshold_info})")
+    filter_info = f"status={status_filter}" if status_filter else "no status filter"
+    logger.info(f"Vector search found {len(results)} candidates ({threshold_info}, {filter_info})")
     
     return [dict(row) for row in results]
 

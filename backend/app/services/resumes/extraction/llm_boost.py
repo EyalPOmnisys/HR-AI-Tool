@@ -335,6 +335,17 @@ def _dedup_person_contacts(person: Dict[str, Any]) -> Dict[str, Any]:
 def _postfix_normalize_person(merged: Dict[str, Any]) -> None:
     """Post-merge contact normalization and dedup (phones to E.164 where possible)."""
     person = merged.get("person") or {}
+    
+    # Sanitize name to remove non-Latin characters
+    name = person.get("name")
+    if isinstance(name, str):
+        # Keep only Latin letters, spaces, hyphens, and apostrophes
+        sanitized_name = re.sub(r"[^a-zA-Z\s\-\']", "", name).strip()
+        # If sanitization removed everything (e.g. was all Hebrew), keep original (better than empty) 
+        # but ideally the LLM should have translated it.
+        if sanitized_name:
+            person["name"] = sanitized_name
+
     fixed = []
     for p in person.get("phones") or []:
         val = (p or {}).get("value")
@@ -811,6 +822,7 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
             f"{parsed_text}\n\n"
             "CURRENT_SAFE_JSON:\n"
             f"{base_json}\n"
+            "IMPORTANT: Translate ALL Hebrew content to English in the output JSON. This includes names, job titles, descriptions, institution names, and degrees.\n"
             "Return JSON only."
         )
         messages = [

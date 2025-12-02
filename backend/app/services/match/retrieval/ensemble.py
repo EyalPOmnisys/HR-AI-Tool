@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
+from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Job, Resume
@@ -29,7 +30,8 @@ def get_title_embedder():
 async def search_and_score_candidates(
     session: AsyncSession,
     job: Job,
-    limit: int = 50
+    limit: int = 50,
+    status_filter: List[str] | None = None
 ) -> List[Dict[str, Any]]:
     """
     Main ensemble scorer combining multiple algorithms.
@@ -45,6 +47,7 @@ async def search_and_score_candidates(
         session: Database session
         job: Job to match candidates against
         limit: Number of top candidates to return after scoring ALL
+        status_filter: Optional list of statuses to filter by
         
     Returns:
         List of top N candidate dicts with scores, breakdown, and metadata
@@ -53,6 +56,8 @@ async def search_and_score_candidates(
     logger.info(f"ENSEMBLE SCORING: Job '{job.title}' (id={job.id})")
     logger.info("=" * 80)
     logger.info(f"Will score ALL candidates and return top {limit}")
+    if status_filter:
+        logger.info(f"Filtering by status: {status_filter}")
     logger.info("")
     
     # ===== STAGE 1: RAG Vector Search (Semantic Filtering) =====
@@ -68,7 +73,9 @@ async def search_and_score_candidates(
         session=session,
         job_embedding=job_embedding,
         limit=None,
-        min_threshold=None
+        min_threshold=None,
+        job_id=job.id,
+        status_filter=status_filter
     )
     
     logger.info(f"RAG search found {len(rag_candidates)} candidates (ALL resumes in DB)")
@@ -386,13 +393,18 @@ async def search_and_score_candidates(
             experience_years = rec_primary.get("tech")
             
             # Extract current/most recent job title
-            title = None
-            experiences = extraction.get("experience", [])
-            if experiences and isinstance(experiences, list) and len(experiences) > 0:
-                # Get the first (most recent) experience entry
-                recent_exp = experiences[0]
-                if isinstance(recent_exp, dict):
-                    title = recent_exp.get("title")
+            # Use the sophisticated logic from _extract_profession (calculated earlier)
+            # This handles sorting by date, filtering out projects/volunteer, and student status
+            title = primary_profession
+            
+            # Fallback to naive extraction if primary_profession failed
+            if not title:
+                experiences = extraction.get("experience", [])
+                if experiences and isinstance(experiences, list) and len(experiences) > 0:
+                    # Get the first (most recent) experience entry
+                    recent_exp = experiences[0]
+                    if isinstance(recent_exp, dict):
+                        title = recent_exp.get("title")
             
             # === Build Candidate Dict ===
             candidate_dict = {
@@ -440,6 +452,7 @@ async def search_and_score_candidates(
                     "phone": phone,
                     "experience_years": experience_years,
                     "resume_url": f"/resumes/{resume_id}/file",
+                    "file_name": Path(resume.file_path).name if resume.file_path else None,
                     "skills": skills_set,
                 }
             }

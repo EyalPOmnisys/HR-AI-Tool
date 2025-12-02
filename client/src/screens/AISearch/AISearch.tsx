@@ -21,6 +21,7 @@ export default function AISearch(): ReactElement {
 
   // Form state
   const [desiredCandidates, setDesiredCandidates] = useState(10);
+  const [statusFilter, setStatusFilter] = useState<string[]>(['new']);
 
   // View state
   const [view, setView] = useState<ViewState>('form');
@@ -100,6 +101,17 @@ export default function AISearch(): ReactElement {
     setDesiredCandidates(Math.min(Math.max(nextValue, 1), 20));
   };
 
+  const handleStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const options = event.target.options;
+    const value: string[] = [];
+    for (let i = 0, l = options.length; i < l; i++) {
+      if (options[i].selected) {
+        value.push(options[i].value);
+      }
+    }
+    setStatusFilter(value);
+  };
+
   const resetTimers = useCallback(() => {
     if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
     if (loadingTickerRef.current) clearInterval(loadingTickerRef.current);
@@ -122,9 +134,13 @@ export default function AISearch(): ReactElement {
 
     try {
       // Call the real API with user-selected number of candidates
+      // If statusFilter is empty, default to ['new']
+      const effectiveStatusFilter = statusFilter.length > 0 ? statusFilter : ['new'];
+      
       const result = await runMatch({
         job_id: selectedJobId,
         top_n: desiredCandidates,
+        status_filter: effectiveStatusFilter,
         min_threshold: 0,
       });
 
@@ -176,11 +192,13 @@ export default function AISearch(): ReactElement {
           jobs={jobs}
           selectedJobId={selectedJobId}
           desiredCandidates={desiredCandidates}
+          statusFilter={statusFilter}
           selectedJob={selectedJob}
           isLoadingJobs={isLoadingJobs}
           error={matchError}
           onJobChange={handleJobChange}
           onCandidateChange={handleCandidateChange}
+          onStatusFilterChange={handleStatusFilterChange}
           onSubmit={handleGenerate}
         />
       )}

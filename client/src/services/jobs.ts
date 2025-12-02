@@ -59,3 +59,16 @@ export async function deleteJob(jobId: string): Promise<void> {
     throw new Error(`Failed to delete job (${res.status}): ${text}`);
   }
 }
+
+export async function updateCandidateStatus(jobId: string, resumeId: string, status: string): Promise<{ status: string; new_status: string }> {
+  const res = await fetch(`${API_URL}/jobs/${jobId}/candidates/${resumeId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to update candidate status (${res.status}): ${text}`);
+  }
+  return res.json();
+}

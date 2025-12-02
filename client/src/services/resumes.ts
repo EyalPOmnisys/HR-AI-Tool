@@ -105,3 +105,13 @@ export async function getResumeDetail(resumeId: string): Promise<ResumeDetail> {
   const data: ApiResumeDetail = await res.json();
   return mapDetail(data);
 }
+
+export async function deleteResume(resumeId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/resumes/${resumeId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to delete resume (${res.status}): ${text}`);
+  }
+}

@@ -6,8 +6,50 @@ from sqlalchemy.orm import Session
 from app.db.base import get_db, SessionLocal
 from app.schemas.job import JobCreate, JobUpdate, JobOut, JobListOut
 from app.services.jobs import service as job_service
+from app.models.job_candidate import JobCandidate
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+class CandidateStatusUpdate(BaseModel):
+    status: str
+
+
+@router.put("/{job_id}/candidates/{resume_id}", status_code=200)
+def update_candidate_status(
+    job_id: UUID, 
+    resume_id: UUID, 
+    payload: CandidateStatusUpdate, 
+    db: Session = Depends(get_db)
+):
+    """Update the status of a candidate for a specific job."""
+    # Check if job exists
+    job = job_service.get_job(db, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Check if candidate record exists
+    candidate = db.query(JobCandidate).filter(
+        JobCandidate.job_id == job_id,
+        JobCandidate.resume_id == resume_id
+    ).first()
+
+    if candidate:
+        candidate.status = payload.status
+    else:
+        # Create new record if it doesn't exist
+        candidate = JobCandidate(
+            job_id=job_id,
+            resume_id=resume_id,
+            status=payload.status
+        )
+        db.add(candidate)
+    
+    db.commit()
+    db.refresh(candidate)
+    
+    return {"status": "success", "new_status": candidate.status}
 
 
 @router.post("", response_model=JobOut, status_code=201)

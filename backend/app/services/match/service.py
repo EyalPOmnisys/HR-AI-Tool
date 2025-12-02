@@ -4,8 +4,9 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.models import Job
+from app.models import Job, JobCandidate
 from app.services.match.retrieval.ensemble import search_and_score_candidates
 from app.services.match.llm_judge import LLMJudge
 
@@ -20,7 +21,8 @@ class MatchService:
         session: AsyncSession,
         job_id: UUID,
         top_n: int,
-        min_threshold: int  # Kept for API compatibility, not used anymore
+        min_threshold: int,  # Kept for API compatibility, not used anymore
+        status_filter: list[str] | None = None
     ):
         """
         Run the complete matching pipeline.
@@ -35,6 +37,7 @@ class MatchService:
             job_id: Job to match
             top_n: Number of final candidates to return
             min_threshold: (deprecated) minimum score threshold
+            status_filter: List of statuses to include (e.g. ["new", "reviewed"])
             
         Returns:
             Dict with job_id, candidates list, and metadata
@@ -44,6 +47,8 @@ class MatchService:
         logger.info("=" * 80)
         logger.info("Job ID: %s", job_id)
         logger.info("Requested top N: %d", top_n)
+        if status_filter:
+            logger.info("Status filter: %s", status_filter)
         logger.info("")
         
         # Load job
@@ -62,7 +67,8 @@ class MatchService:
         candidates = await search_and_score_candidates(
             session=session,
             job=job,
-            limit=top_n  # Get exactly what user requested
+            limit=top_n,  # Get exactly what user requested
+            status_filter=status_filter
         )
         
         if not candidates:
@@ -97,6 +103,15 @@ class MatchService:
             logger.info("Top 5 scores: %s", [c["final_score"] for c in final_candidates[:5]])
         logger.info("=" * 80)
         
+        # Fetch existing statuses for these candidates
+        resume_ids = [c["resume_id"] for c in final_candidates]
+        stmt = select(JobCandidate).where(
+            JobCandidate.job_id == job_id,
+            JobCandidate.resume_id.in_(resume_ids)
+        )
+        result = await session.execute(stmt)
+        existing_candidates = {c.resume_id: c.status for c in result.scalars().all()}
+
         # Build API response
         response_candidates = []
         for candidate in final_candidates:
@@ -120,6 +135,9 @@ class MatchService:
             stability_score = stability_detail.get("score", 0.5) if stability_detail else 0.5
             stability_verdict = stability_detail.get("verdict", "unknown") if stability_detail else "unknown"
             
+            # Get status or default to "new"
+            status = existing_candidates.get(candidate["resume_id"], "new")
+
             response_candidates.append({
                 "resume_id": candidate["resume_id"],
                 "match": candidate["final_score"],
@@ -129,13 +147,14 @@ class MatchService:
                 "email": contact.get("email"),
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
+                "file_name": contact.get("file_name"),
                 "rag_score": candidate["rag_score"],
                 "rag_breakdown": candidate.get("breakdown", {}),
                 "llm_strengths": _ensure_string(llm_analysis.get("strengths", "")),
                 "llm_concerns": _ensure_string(llm_analysis.get("concerns", "")),
-                "llm_recommendation": llm_analysis.get("recommendation", ""),
                 "stability_score": int(stability_score * 100),
                 "stability_verdict": stability_verdict,
+                "status": status,
             })
         
         return {

@@ -39,6 +39,13 @@ class Resume(Base):
         passive_deletes=True,
     )
 
+    applications = relationship(
+        "JobCandidate",
+        back_populates="resume",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class ResumeChunk(Base):
     __tablename__ = "resume_chunks"

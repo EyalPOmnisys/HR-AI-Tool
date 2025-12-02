@@ -1,4 +1,5 @@
 .card {
+  position: relative; /* Ensure absolute positioning works for children */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -173,4 +174,31 @@
   display: inline-flex;
   width: 16px;
   height: 16px;
+}
+
+.deleteButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.deleteButton:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.deleteButton:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
 }

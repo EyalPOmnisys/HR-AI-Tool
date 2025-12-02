@@ -38,7 +38,7 @@ services:
     networks: [ai_stack]
 
   backend:
-    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.8}
+    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.9}
     restart: unless-stopped
     env_file:
       - ./.env
@@ -62,7 +62,7 @@ services:
     networks: [ai_stack]
 
   resume_watcher:
-    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.8}
+    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.9}
     command: bash -lc "python -m app.workers.resume_watcher"
     restart: unless-stopped
     env_file:
@@ -86,7 +86,7 @@ services:
     networks: [ai_stack]
 
   frontend:
-    image: docker.artifactory.omnisys.local/omnisys/hr-frontend:${FRONTEND_TAG:-1.0.3}
+    image: docker.artifactory.omnisys.local/omnisys/hr-frontend:${FRONTEND_TAG:-1.0.4}
     restart: unless-stopped
     depends_on:
       - backend

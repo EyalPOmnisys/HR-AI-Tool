@@ -692,3 +692,7 @@ def run_full_ingestion(db: Session, path: Path) -> Resume:
     resume = parse_and_extract(db, resume)
     resume = chunk_and_embed(db, resume)
     return resume
+
+
+def delete_resume(db: Session, resume_id: UUID) -> bool:
+    return resume_repo.delete_resume(db, resume_id)

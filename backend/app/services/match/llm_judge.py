@@ -28,7 +28,7 @@ class LLMJudge:
     1. Prepare job data (title + description + analysis_json)
     2. Prepare candidate data (extraction_json + algorithmic_score)
     3. Call LLM in batches of 3 candidates
-    4. Return evaluations with final_score, strengths, concerns, recommendation
+    4. Return evaluations with final_score, strengths, concerns
     """
     
     BATCH_SIZE = 3  # Process 3 candidates per LLM call (Reduced from 5 to improve reliability)
@@ -99,13 +99,6 @@ class LLMJudge:
         logger.info(f"Total candidates: {len(final_results)}")
         if final_results:
             logger.info(f"Top 5 LLM scores: {[c.get('final_score', 0) for c in final_results[:5]]}")
-            logger.info(f"Recommendations breakdown:")
-            recommendations = {}
-            for c in final_results:
-                rec = c.get("llm_analysis", {}).get("recommendation", "unknown")
-                recommendations[rec] = recommendations.get(rec, 0) + 1
-            for rec, count in sorted(recommendations.items(), key=lambda x: x[1], reverse=True):
-                logger.info(f"  - {rec}: {count}")
         logger.info("=" * 80)
         logger.info("")
         
@@ -207,7 +200,52 @@ class LLMJudge:
         experience = extraction.get("experience", [])
         if experience:
             lines.append("\nWORK EXPERIENCE:")
-            for exp in experience:
+            
+            # Sort experience by start_date (descending) to ensure most recent is first
+            # Handle "present", "current", nulls, and year strings
+            def parse_date_sort_key(exp):
+                start = exp.get("start_date")
+                end = exp.get("end_date")
+                
+                # If currently working there (end date is present/null), it's the most recent
+                is_current = False
+                if end:
+                    end_lower = str(end).lower()
+                    if "present" in end_lower or "current" in end_lower or "now" in end_lower:
+                        is_current = True
+                elif start: # If start exists but end is null, assume current
+                     is_current = True
+                
+                if is_current:
+                    return 9999 # Future/Present
+                
+                # Try to parse year from end date
+                try:
+                    if end:
+                        # Extract first 4 digits
+                        import re
+                        match = re.search(r'\d{4}', str(end))
+                        if match:
+                            return int(match.group(0))
+                except:
+                    pass
+                
+                # Fallback to start date
+                try:
+                    if start:
+                        import re
+                        match = re.search(r'\d{4}', str(start))
+                        if match:
+                            return int(match.group(0))
+                except:
+                    pass
+                    
+                return 0 # Unknown date
+            
+            # Sort in descending order (most recent first)
+            sorted_experience = sorted(experience, key=parse_date_sort_key, reverse=True)
+            
+            for i, exp in enumerate(sorted_experience):
                 title = exp.get("title", "")
                 company = exp.get("company", "")
                 start = exp.get("start_date", "")
@@ -216,6 +254,20 @@ class LLMJudge:
                 exp_header = f"  • {title} at {company}"
                 if start:
                     exp_header += f" ({start} - {end})"
+                
+                # Explicitly mark the first item as current if it looks current
+                if i == 0:
+                    is_current = False
+                    if end:
+                        end_lower = str(end).lower()
+                        if "present" in end_lower or "current" in end_lower:
+                            is_current = True
+                    elif start:
+                        is_current = True
+                    
+                    if is_current:
+                        exp_header += " [CURRENT ROLE]"
+                
                 lines.append(exp_header)
                 
                 # Technologies
@@ -239,7 +291,7 @@ class LLMJudge:
         Call LLM in batches of BATCH_SIZE candidates.
         
         Returns:
-            List of evaluations: [{resume_id, final_score, strengths, concerns, recommendation}, ...]
+            List of evaluations: [{resume_id, final_score, strengths, concerns}, ...]
         """
         all_evaluations = []
         num_batches = (len(candidates) + LLMJudge.BATCH_SIZE - 1) // LLMJudge.BATCH_SIZE
@@ -286,80 +338,96 @@ class LLMJudge:
                 "resume_id": str(candidate["resume_id"]),
                 "algorithmic_score": candidate.get("rag_score", 0),
                 "algorithmic_rank": candidate.get("rank", 0),  # Position in ranked list
+                "current_title": candidate.get("contact", {}).get("title", "Unknown"),
                 "resume": candidate.get("resume_text", "")
             })
         
-        try:
-            # Prepare messages
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False, indent=2)}
-            ]
-            
-            # Call LLM (synchronous call wrapped in executor)
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                partial(default_llm_client.chat_json, messages, timeout=180)
-            )
-            
-            # Parse response
-            content_dict = response.data
-            evaluations = content_dict.get("evaluations", [])
-            
-            if not evaluations:
-                logger.warning(f"⚠️  LLM returned valid JSON but no 'evaluations' list. Keys found: {list(content_dict.keys())}")
+        max_retries = 3
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Retry attempt {attempt}/{max_retries} for batch {batch_num}...")
+                    await asyncio.sleep(1)
 
-            # Compact summary table
-            logger.info(f"\n📊 Batch {batch_num} Results:")
-            logger.info("┌─────────────────────────┬───────┬────────────────────┐")
-            logger.info("│ Candidate               │ Score │ Recommendation     │")
-            logger.info("├─────────────────────────┼───────┼────────────────────┤")
-            
-            for ev in evaluations:
-                # Get candidate info
-                resume_id = ev.get("resume_id", "unknown")
-                final_score = ev.get("final_score", 0)
-                recommendation = ev.get("recommendation", "unknown")
+                # Prepare messages
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": "Here is the data for the job and candidates to evaluate. Please output the JSON evaluation list as requested:\n\n" + json.dumps(user_prompt, ensure_ascii=False, indent=2)}
+                ]
                 
-                # Find candidate name from input
-                candidate_name = "Unknown"
-                for cand in candidates:
-                    if str(cand["resume_id"]) == resume_id:
-                        resume_text = cand.get("resume_text", "")
-                        if resume_text.startswith("NAME: "):
-                            candidate_name = resume_text.split("\n")[0].replace("NAME: ", "")
-                        break
+                # Call LLM (synchronous call wrapped in executor)
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    partial(default_llm_client.chat_json, messages, timeout=180)
+                )
                 
-                # Truncate name if too long
-                name_display = candidate_name[:23] if len(candidate_name) <= 23 else candidate_name[:20] + "..."
-                rec_display = recommendation[:18] if len(recommendation) <= 18 else recommendation[:15] + "..."
+                # Parse response
+                content_dict = response.data
+                evaluations = content_dict.get("evaluations", [])
                 
-                logger.info(f"│ {name_display:<23} │ {final_score:>5} │ {rec_display:<18} │")
-            
-            logger.info("└─────────────────────────┴───────┴────────────────────┘\n")
-            
-            # Validate: ensure we got evaluations for all candidates
-            if len(evaluations) != len(candidates):
-                logger.warning(f"⚠️  Expected {len(candidates)} evaluations, got {len(evaluations)}")
-            
-            return evaluations
-            
-        except Exception as e:
-            logger.error(f"  ❌ LLM call failed for batch {batch_num}: {e}", exc_info=True)
-            
-            # Return empty evaluations with zero scores as fallback
-            fallback_evaluations = []
-            for candidate in candidates:
-                fallback_evaluations.append({
-                    "resume_id": str(candidate["resume_id"]),
-                    "final_score": 0,
-                    "strengths": "LLM evaluation failed - could not analyze",
-                    "concerns": "System error during evaluation",
-                    "recommendation": "pass"
-                })
-            
-            return fallback_evaluations
+                if not evaluations:
+                    logger.warning(f"⚠️  LLM returned valid JSON but no 'evaluations' list. Keys found: {list(content_dict.keys())}")
+                    if attempt < max_retries:
+                        continue
+
+                # Validate: ensure we got evaluations for all candidates
+                if len(evaluations) != len(candidates):
+                    logger.warning(f"⚠️  Expected {len(candidates)} evaluations, got {len(evaluations)}")
+                    if attempt < max_retries:
+                        continue
+
+                # Compact summary table
+                logger.info(f"\n📊 Batch {batch_num} Results:")
+                logger.info("┌─────────────────────────┬───────┐")
+                logger.info("│ Candidate               │ Score │")
+                logger.info("├─────────────────────────┼───────┤")
+                
+                for ev in evaluations:
+                    # Get candidate info
+                    resume_id = ev.get("resume_id", "unknown")
+                    final_score = ev.get("final_score", 0)
+                    
+                    # Find candidate name from input
+                    candidate_name = "Unknown"
+                    for cand in candidates:
+                        if str(cand["resume_id"]) == resume_id:
+                            resume_text = cand.get("resume_text", "")
+                            if resume_text.startswith("NAME: "):
+                                candidate_name = resume_text.split("\n")[0].replace("NAME: ", "")
+                            break
+                    
+                    # Truncate name if too long
+                    name_display = candidate_name[:23] if len(candidate_name) <= 23 else candidate_name[:20] + "..."
+                    
+                    logger.info(f"│ {name_display:<23} │ {final_score:>5} │")
+                
+                logger.info("└─────────────────────────┴───────┘\n")
+                
+                return evaluations
+                
+            except Exception as e:
+                logger.error(f"  ❌ LLM call failed for batch {batch_num} (attempt {attempt+1}): {e}")
+                last_exception = e
+                if attempt < max_retries:
+                    continue
+        
+        # If we get here, all retries failed
+        logger.error(f"❌ All {max_retries + 1} attempts failed for batch {batch_num}. Last error: {last_exception}")
+        
+        # Return empty evaluations with zero scores as fallback
+        fallback_evaluations = []
+        for candidate in candidates:
+            fallback_evaluations.append({
+                "resume_id": str(candidate["resume_id"]),
+                "final_score": 0,
+                "strengths": "LLM evaluation failed - could not analyze",
+                "concerns": "System error during evaluation"
+            })
+        
+        return fallback_evaluations
     
     @staticmethod
     def _merge_evaluations(
@@ -397,8 +465,7 @@ class LLMJudge:
                     "final_score": final_score,
                     "llm_analysis": {
                         "strengths": evaluation.get("strengths", ""),
-                        "concerns": evaluation.get("concerns", ""),
-                        "recommendation": evaluation.get("recommendation", "pass")
+                        "concerns": evaluation.get("concerns", "")
                     }
                 })
             else:
@@ -408,8 +475,7 @@ class LLMJudge:
                     "final_score": candidate.get("rag_score", 0),
                     "llm_analysis": {
                         "strengths": "LLM evaluation not available",
-                        "concerns": "Could not complete LLM analysis",
-                        "recommendation": "pass"
+                        "concerns": "Could not complete LLM analysis"
                     }
                 })
         

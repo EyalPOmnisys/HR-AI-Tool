@@ -1,14 +1,15 @@
-import type { KeyboardEvent, ReactElement } from 'react'
-import { FaUser, FaBriefcase, FaClock } from 'react-icons/fa'
+import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
+import { FaUser, FaBriefcase, FaClock, FaTrash } from 'react-icons/fa'
 import type { ResumeSummary } from '../../../types/resume'
 import styles from './ResumeCard.module.css'
 
 type ResumeCardProps = {
   resume: ResumeSummary
   onSelect?: (resume: ResumeSummary) => void
+  onDelete?: (resume: ResumeSummary) => void
 }
 
-export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement => {
+export const ResumeCard = ({ resume, onSelect, onDelete }: ResumeCardProps): ReactElement => {
   const { name, profession, yearsOfExperience } = resume
   const displayName = name ?? 'Unnamed candidate'
   // If profession is missing, show a neutral fallback
@@ -21,6 +22,13 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
   const handleSelect = () => {
     if (onSelect) {
       onSelect(resume)
+    }
+  }
+
+  const handleDelete = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (onDelete) {
+      onDelete(resume)
     }
   }
 
@@ -40,6 +48,17 @@ export const ResumeCard = ({ resume, onSelect }: ResumeCardProps): ReactElement 
       onClick={isInteractive ? handleSelect : undefined}
       onKeyDown={handleKeyDown}
     >
+      {onDelete && (
+        <button
+          className={styles.deleteButton}
+          onClick={handleDelete}
+          aria-label="Delete resume"
+          title="Delete resume"
+        >
+          <FaTrash />
+        </button>
+      )}
+
       <div className={styles.avatarSection}>
         <div className={styles.avatar}>
           <FaUser className={styles.userIcon} />

@@ -173,6 +173,41 @@ def _extract_skills(text: str) -> List[Dict[str, Any]]:
     return skills
 
 
+def _extract_candidate_name_heuristic(text: str) -> str | None:
+    """
+    Simple heuristic to guess the candidate name from the first few lines.
+    Rules:
+    - Look at first 3 non-empty lines.
+    - Candidate must be 2-4 words.
+    - Must not contain digits, emails, or common header words (Resume, CV, etc).
+    - Must be mostly letters (Hebrew or English).
+    - UPDATE: If name contains Hebrew, return None to force LLM translation.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    
+    # Common words to avoid
+    blocklist = {"resume", "cv", "curriculum", "vitae", "profile", "summary", "contact", "phone", "email", "address", "קורות", "חיים"}
+    
+    for line in lines[:3]:
+        # Clean up common separators like " - " or " | "
+        clean_line = re.sub(r"[\-\|•]", " ", line).strip()
+        
+        words = clean_line.split()
+        if 2 <= len(words) <= 4:
+            # Check if words are valid (no numbers, no symbols)
+            if all(w.replace("-", "").isalpha() for w in words):
+                # Check against blocklist
+                if not any(w.lower() in blocklist for w in words):
+                    # Check for Hebrew characters
+                    if re.search(r"[\u0590-\u05FF]", clean_line):
+                        return None  # Force LLM to handle translation
+                    return clean_line
+                    
+    return None
+
+
 def extract_deterministic_safe(parsed_text: str) -> Dict[str, Any]:
     """
     Safe-only extraction (no risky inference):
@@ -185,10 +220,13 @@ def extract_deterministic_safe(parsed_text: str) -> Dict[str, Any]:
     contacts = _extract_basic_contacts(parsed_text)
     langs = _extract_languages(parsed_text)
     skills = _extract_skills(parsed_text)
+    
+    # Try to find a name candidate to help the LLM
+    name_candidate = _extract_candidate_name_heuristic(parsed_text)
 
     return {
         "person": {
-            "name": None,
+            "name": name_candidate,
             "emails": contacts["emails"],
             "phones": contacts["phones"],
             "links": contacts["links"],

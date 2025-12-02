@@ -71,8 +71,16 @@ def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
         }
         return StreamingResponse(f, media_type="application/pdf", headers=headers)
     
-    # For DOCX and TXT, convert to HTML
-    if suffix in [".docx", ".txt"]:
+    # For DOCX, stream the original so frontend can render it
+    if suffix == ".docx":
+        f = open(path, "rb")
+        headers = {
+            "Content-Disposition": f'inline; filename*=UTF-8\'\'{encoded_filename}',
+        }
+        return StreamingResponse(f, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers=headers)
+
+    # For TXT, convert to HTML
+    if suffix == ".txt":
         html_content = _convert_to_html(path, resume.parsed_text or "")
         return HTMLResponse(content=html_content)
     
@@ -84,9 +92,17 @@ def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
     return StreamingResponse(f, media_type=mime or "application/octet-stream", headers=headers)
 
 
+@router.delete("/{resume_id}", status_code=204)
+def delete_resume(resume_id: UUID, db: Session = Depends(get_db)):
+    success = resume_service.delete_resume(db, resume_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    return None
+
+
 def _convert_to_html(file_path: Path, parsed_text: str) -> str:
     """
-    Convert DOCX or TXT file to HTML for browser display.
+    Convert TXT file to HTML for browser display.
     Uses parsed_text (already RTL-fixed) and formats it nicely.
     """
     from html import escape

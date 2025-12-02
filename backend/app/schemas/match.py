@@ -9,6 +9,7 @@ class MatchRunRequest(BaseModel):
     job_id: UUID
     top_n: int = Field(ge=1, le=100, default=10)
     min_threshold: int = Field(ge=0, le=100, default=0)  # Deprecated, kept for compatibility
+    status_filter: List[str] = Field(default_factory=lambda: ["new"])
 
 
 class CandidateRow(BaseModel):
@@ -21,6 +22,7 @@ class CandidateRow(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     resume_url: Optional[str] = None
+    file_name: Optional[str] = None  # Added for file type detection
     
     # Scoring breakdown for transparency
     rag_score: int                                  # Pure vector similarity score (0-100)
@@ -28,9 +30,11 @@ class CandidateRow(BaseModel):
     llm_verdict: Optional[str] = None               # excellent|strong|good|weak|poor|not_evaluated
     llm_strengths: Optional[str] = None             # What the LLM found positive
     llm_concerns: Optional[str] = None              # What the LLM found concerning
-    llm_recommendation: Optional[str] = None        # hire_immediately|strong_interview|interview|maybe|pass
     stability_score: Optional[int] = None           # Employment stability score (0-100)
     stability_verdict: Optional[str] = None         # excellent_stability|good_stability|acceptable_stability|moderate_concerns|significant_concerns|severe_stability_issues
+    
+    # Status tracking
+    status: str = "new"                             # new|reviewed|shortlisted|rejected
 
 
 class MatchRunResponse(BaseModel):

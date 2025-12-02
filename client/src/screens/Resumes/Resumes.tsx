@@ -5,7 +5,7 @@ import { SearchInput } from '../../components/common/SearchInput'
 import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
 import { ResumeCard } from '../../components/Resume/ResumeCard/ResumeCard'
 import { ResumeFilters, type FilterState } from '../../components/Resume/ResumeFilters/ResumeFilters'
-import { getResumeDetail, listResumes } from '../../services/resumes'
+import { getResumeDetail, listResumes, deleteResume } from '../../services/resumes'
 import type { ResumeDetail, ResumeSummary } from '../../types/resume'
 import styles from './Resumes.module.css'
 
@@ -131,6 +131,23 @@ export const Resumes = (): ReactElement => {
     setDetailReloadKey((key) => key + 1)
   }, [selectedResumeId])
 
+  const handleDeleteResume = useCallback(async (resume: ResumeSummary) => {
+    if (!window.confirm(`Are you sure you want to delete ${resume.name}?`)) {
+      return
+    }
+
+    try {
+      await deleteResume(resume.id)
+      setResumes((prev) => prev.filter((r) => r.id !== resume.id))
+      if (selectedResumeId === resume.id) {
+        handleClosePanel()
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete resume'
+      alert(message)
+    }
+  }, [selectedResumeId, handleClosePanel])
+
   useEffect(() => {
     if (!selectedResumeId) {
       setSelectedResume(null)
@@ -245,7 +262,11 @@ export const Resumes = (): ReactElement => {
           const isActive = resume.id === selectedResumeId
           return (
             <li key={resume.id} className={isActive ? styles.selectedItem : undefined}>
-              <ResumeCard resume={resume} onSelect={handleSelectResume} />
+              <ResumeCard 
+                resume={resume} 
+                onSelect={handleSelectResume} 
+                onDelete={handleDeleteResume}
+              />
             </li>
           )
         })}

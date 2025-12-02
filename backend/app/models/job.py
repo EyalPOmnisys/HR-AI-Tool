@@ -63,6 +63,13 @@ class Job(Base):
         passive_deletes=True,
     )
 
+    candidates = relationship(
+        "JobCandidate",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class JobChunk(Base):
     """

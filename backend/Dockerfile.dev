@@ -2,6 +2,12 @@ FROM docker.artifactory.omnisys.local/python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt .
+RUN apt-get update && apt-get install -y \
+    catdoc \
+    libxml2-dev \
+    libxslt-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY alembic.ini /app/alembic.ini
