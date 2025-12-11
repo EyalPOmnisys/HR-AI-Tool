@@ -85,7 +85,7 @@ async def vector_search_candidates(
     limit: Optional[int] = None,
     min_threshold: Optional[float] = None,
     job_id: Optional[UUID] = None,
-    status_filter: Optional[List[str]] = None
+    exclude_resume_ids: Optional[set[UUID]] = None
 ) -> List[dict]:
     """
     Fast vector search to find candidate resumes using pgvector.
@@ -96,8 +96,8 @@ async def vector_search_candidates(
         job_embedding: Job embedding vector
         limit: Maximum number of candidates to return (None = all)
         min_threshold: Minimum cosine similarity threshold (None = no threshold)
-        job_id: Optional Job ID for status filtering
-        status_filter: Optional list of statuses to filter by
+        job_id: Optional Job ID (kept for compatibility)
+        exclude_resume_ids: Set of resume IDs to exclude from search (already reviewed)
         
     Returns:
         List of dicts with resume_id, avg_similarity, chunk_count
@@ -111,14 +111,10 @@ async def vector_search_candidates(
     if min_threshold is not None:
         where_clause += f" AND 1 - (r.embedding <=> CAST(:job_vec AS vector)) >= :min_threshold"
         params["min_threshold"] = min_threshold
-        
-    if status_filter and job_id:
-        # Join with job_candidates to check status
-        join_clause = "LEFT JOIN job_candidates jc ON jc.resume_id = r.id AND jc.job_id = :job_id"
-        # Filter by status (treating NULL as 'new')
-        where_clause += " AND COALESCE(jc.status, 'new') = ANY(:status_filter)"
-        params["job_id"] = job_id
-        params["status_filter"] = status_filter
+    
+    if exclude_resume_ids:
+        where_clause += " AND r.id != ALL(:exclude_ids)"
+        params["exclude_ids"] = list(exclude_resume_ids)
     
     limit_clause = ""
     if limit is not None:
@@ -142,8 +138,8 @@ async def vector_search_candidates(
     results = (await session.execute(sql, params)).mappings().all()
     
     threshold_info = f"threshold={min_threshold:.3f}" if min_threshold else "no threshold"
-    filter_info = f"status={status_filter}" if status_filter else "no status filter"
-    logger.info(f"Vector search found {len(results)} candidates ({threshold_info}, {filter_info})")
+    exclude_info = f"excluding {len(exclude_resume_ids)} candidates" if exclude_resume_ids else "no exclusions"
+    logger.info(f"Vector search found {len(results)} candidates ({threshold_info}, {exclude_info})")
     
     return [dict(row) for row in results]
 

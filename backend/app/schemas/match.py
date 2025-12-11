@@ -9,7 +9,6 @@ class MatchRunRequest(BaseModel):
     job_id: UUID
     top_n: int = Field(ge=1, le=100, default=10)
     min_threshold: int = Field(ge=0, le=100, default=0)  # Deprecated, kept for compatibility
-    status_filter: List[str] = Field(default_factory=lambda: ["new"])
 
 
 class CandidateRow(BaseModel):
@@ -35,11 +34,17 @@ class CandidateRow(BaseModel):
     
     # Status tracking
     status: str = "new"                             # new|reviewed|shortlisted|rejected
+    
+    # User Notes
+    notes: Optional[str] = None                     # Free text notes from user
 
 
 class MatchRunResponse(BaseModel):
     """Response from match run."""
     job_id: UUID
     requested_top_n: int
-    returned: int
-    candidates: List[CandidateRow]
+    min_threshold: int
+    new_candidates: List[CandidateRow]
+    new_count: int
+    previously_reviewed_count: int
+    all_candidates_already_reviewed: bool

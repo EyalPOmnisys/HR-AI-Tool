@@ -38,7 +38,7 @@ services:
     networks: [ai_stack]
 
   backend:
-    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.0.3}
+    image: docker.artifactory.omnisys.local/omnisys/hr-backend:${HR_BACKEND_TAG:-1.1.0}
     build:
       context: ../backend
       dockerfile: Dockerfile.dev

@@ -1,5 +1,6 @@
 # Purpose: Job routes with background AI analysis on create and a manual re-run endpoint.
 
+import os
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -7,23 +8,28 @@ from app.db.base import get_db, SessionLocal
 from app.schemas.job import JobCreate, JobUpdate, JobOut, JobListOut
 from app.services.jobs import service as job_service
 from app.models.job_candidate import JobCandidate
+from app.models.resume import Resume
+from app.schemas.match import CandidateRow
+from app.services.resumes import ingestion_pipeline as resume_utils
 from pydantic import BaseModel
+from typing import Optional, List
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-class CandidateStatusUpdate(BaseModel):
-    status: str
+class CandidateUpdate(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
 
 
 @router.put("/{job_id}/candidates/{resume_id}", status_code=200)
-def update_candidate_status(
+def update_candidate(
     job_id: UUID, 
     resume_id: UUID, 
-    payload: CandidateStatusUpdate, 
+    payload: CandidateUpdate, 
     db: Session = Depends(get_db)
 ):
-    """Update the status of a candidate for a specific job."""
+    """Update the status or notes of a candidate for a specific job."""
     # Check if job exists
     job = job_service.get_job(db, job_id)
     if not job:
@@ -36,20 +42,116 @@ def update_candidate_status(
     ).first()
 
     if candidate:
-        candidate.status = payload.status
+        if payload.status is not None:
+            candidate.status = payload.status
+        if payload.notes is not None:
+            candidate.notes = payload.notes
     else:
         # Create new record if it doesn't exist
         candidate = JobCandidate(
             job_id=job_id,
             resume_id=resume_id,
-            status=payload.status
+            status=payload.status or "new",
+            notes=payload.notes
         )
         db.add(candidate)
     
     db.commit()
     db.refresh(candidate)
     
-    return {"status": "success", "new_status": candidate.status}
+    return {"status": "success", "new_status": candidate.status, "notes": candidate.notes}
+
+
+@router.get("/{job_id}/candidates", response_model=List[CandidateRow])
+def get_job_candidates(job_id: UUID, db: Session = Depends(get_db)):
+    """Get all candidates for a job (persisted results)."""
+    # Join JobCandidate with Resume to get contact info
+    results = db.query(JobCandidate, Resume).join(
+        Resume, JobCandidate.resume_id == Resume.id
+    ).filter(
+        JobCandidate.job_id == job_id
+    ).all()
+    
+    candidates = []
+    
+    def _format_experience(years):
+        if years is None: return "0 yrs"
+        try:
+            y = float(years)
+            if y < 1 and y > 0: return "<1 yr"
+            if y % 1 == 0: return f"{int(y)} yrs"
+            return f"{y:.1f} yrs"
+        except:
+            return str(years)
+
+    def _ensure_string(value):
+        if isinstance(value, list):
+            return "\n".join(str(item) for item in value)
+        return str(value) if value else ""
+
+    for jc, resume in results:
+        # Parse stored analysis + extraction data
+        analysis = jc.analysis_json or {}
+        extraction = resume.extraction_json or {}
+        person = extraction.get("person") or {}
+
+        # Determine stability score safely
+        stability = analysis.get("stability", {})
+        stability_score = 0
+        if stability and isinstance(stability, dict):
+            try:
+                stability_numeric = stability.get("score", 0) or 0
+                stability_score = int(float(stability_numeric) * 100)
+            except (TypeError, ValueError):
+                stability_score = 0
+
+        # Derive resume metadata & contact details
+        resume_url = f"/resumes/{resume.id}/file" if resume.file_path else None
+        file_name = os.path.basename(resume.file_path) if resume.file_path else None
+
+        contacts = resume_utils._extract_contacts(person)
+        email = next((c["value"] for c in contacts if c.get("type") == "email"), None)
+        phone = next((c["value"] for c in contacts if c.get("type") == "phone"), None)
+
+        candidate_name = resume_utils._clean(person.get("name")) or resume_utils._infer_name_from_path(resume.file_path)
+        title = resume_utils._extract_profession(
+            extraction.get("experience") or [],
+            extraction.get("education"),
+            person
+        )
+        
+        # Get tech-specific experience years (same logic as match service)
+        exp_meta = extraction.get("experience_meta", {})
+        rec_primary = exp_meta.get("recommended_primary_years", {})
+        years_of_experience = rec_primary.get("tech")
+
+        candidates.append(CandidateRow(
+            resume_id=jc.resume_id,
+            match=jc.match_score or 0,
+            candidate=candidate_name or "Unknown",
+            title=title,
+            experience=_format_experience(years_of_experience),
+            email=email,
+            phone=phone,
+            resume_url=resume_url,
+            file_name=file_name,
+            
+            rag_score=jc.rag_score or 0,
+            llm_score=jc.llm_score,
+            llm_verdict=analysis.get("llm_verdict"),
+            llm_strengths=_ensure_string(analysis.get("llm_strengths")),
+            llm_concerns=_ensure_string(analysis.get("llm_concerns")),
+            stability_score=stability_score,
+            stability_verdict=stability.get("verdict") if isinstance(stability, dict) else None,
+            
+            status=jc.status,
+            notes=jc.notes
+        ))
+    
+    # Sort by match score descending
+    candidates.sort(key=lambda x: x.match, reverse=True)
+    
+    return candidates
 
 
 @router.post("", response_model=JobOut, status_code=201)
@@ -106,6 +208,14 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
     job = job_service.get_job(db, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Check if content that requires re-analysis has changed
+    should_reanalyze = False
+    if payload.job_description is not None and payload.job_description != job.job_description:
+        should_reanalyze = True
+    if payload.free_text is not None and payload.free_text != job.free_text:
+        should_reanalyze = True
+
     job = job_service.update_job(
         db,
         job,
@@ -115,8 +225,11 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
         icon=payload.icon,
         status=payload.status,
     )
-    # Re-run AI analysis in background after update
-    background.add_task(_analyze_async, job.id)
+    
+    # Only trigger background AI analysis if content actually changed
+    if should_reanalyze:
+        background.add_task(_analyze_async, job.id)
+        
     return job
 
 

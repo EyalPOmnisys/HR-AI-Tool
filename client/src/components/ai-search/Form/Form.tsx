@@ -7,13 +7,11 @@ type Props = {
   jobs: ApiJob[];
   selectedJobId: string;
   desiredCandidates: number;
-  statusFilter: string[]; // New prop
   selectedJob?: ApiJob;
   isLoadingJobs: boolean;
   error?: string | null;
   onJobChange: (e: ChangeEvent<HTMLSelectElement>) => void;
   onCandidateChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  onStatusFilterChange: (e: ChangeEvent<HTMLSelectElement>) => void; // New prop
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
 };
 
@@ -40,13 +38,11 @@ export default function Form({
   jobs,
   selectedJobId,
   desiredCandidates,
-  statusFilter,
   selectedJob,
   isLoadingJobs,
   error,
   onJobChange,
   onCandidateChange,
-  onStatusFilterChange,
   onSubmit,
 }: Props) {
   const analysis: JobAnalysis | undefined = selectedJob?.analysis_json ?? undefined;
@@ -93,81 +89,6 @@ export default function Form({
                     ))
                   )}
                 </select>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.label}>
-                  Filter by Status
-                </label>
-                <div className={styles.statusFilter}>
-                  <label className={styles.statusCheckbox}>
-                    <input
-                      type="checkbox"
-                      value="new"
-                      checked={statusFilter.includes('new')}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const newFilter = e.target.checked
-                          ? [...statusFilter, value]
-                          : statusFilter.filter((s) => s !== value);
-                        onStatusFilterChange({ target: { options: newFilter.map(v => ({ value: v, selected: true })) } } as any);
-                      }}
-                    />
-                    <span className={styles.statusIcon}>🕐</span>
-                    <span>New</span>
-                  </label>
-                  
-                  <label className={styles.statusCheckbox}>
-                    <input
-                      type="checkbox"
-                      value="reviewed"
-                      checked={statusFilter.includes('reviewed')}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const newFilter = e.target.checked
-                          ? [...statusFilter, value]
-                          : statusFilter.filter((s) => s !== value);
-                        onStatusFilterChange({ target: { options: newFilter.map(v => ({ value: v, selected: true })) } } as any);
-                      }}
-                    />
-                    <span className={styles.statusIcon}>👁️</span>
-                    <span>Reviewed</span>
-                  </label>
-                  
-                  <label className={styles.statusCheckbox}>
-                    <input
-                      type="checkbox"
-                      value="shortlisted"
-                      checked={statusFilter.includes('shortlisted')}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const newFilter = e.target.checked
-                          ? [...statusFilter, value]
-                          : statusFilter.filter((s) => s !== value);
-                        onStatusFilterChange({ target: { options: newFilter.map(v => ({ value: v, selected: true })) } } as any);
-                      }}
-                    />
-                    <span className={styles.statusIcon}>✅</span>
-                    <span>Shortlisted</span>
-                  </label>
-                  
-                  <label className={styles.statusCheckbox}>
-                    <input
-                      type="checkbox"
-                      value="rejected"
-                      checked={statusFilter.includes('rejected')}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const newFilter = e.target.checked
-                          ? [...statusFilter, value]
-                          : statusFilter.filter((s) => s !== value);
-                        onStatusFilterChange({ target: { options: newFilter.map(v => ({ value: v, selected: true })) } } as any);
-                      }}
-                    />
-                    <span className={styles.statusIcon}>❌</span>
-                    <span>Rejected</span>
-                  </label>
-                </div>
               </div>
 
               <div className={styles.field}>

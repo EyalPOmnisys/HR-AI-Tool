@@ -1,15 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import styles from './Dashboard.module.css'
-import type { MatchRunResponse } from '../../../types/match'
+import type { MatchRunResponse, CandidateRow } from '../../../types/match'
 import type { ApiJob } from '../../../types/job'
-import { FiUsers, FiTrendingUp, FiAward, FiChevronDown, FiChevronUp, FiHelpCircle, FiX, FiCheckCircle, FiXCircle, FiEye, FiClock } from 'react-icons/fi'
+import { FiChevronDown, FiChevronUp, FiHelpCircle, FiX, FiCheckCircle, FiXCircle, FiEye, FiClock, FiFilter } from 'react-icons/fi'
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
 import { renderAsync } from 'docx-preview'
-import { updateCandidateStatus } from '../../../services/jobs'
+import { updateCandidateStatus, updateCandidate } from '../../../services/jobs'
 
 type Props = {
   matchResults: MatchRunResponse
   selectedJob?: ApiJob
+  showJobHeader?: boolean
+  previousCandidates?: CandidateRow[]
+  showFilter?: boolean
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -162,22 +165,46 @@ function formatAIInsight(text: string | undefined | null): React.ReactNode {
 }
 
 
-export default function Dashboard({ matchResults, selectedJob }: Props) {
-  const [candidates, setCandidates] = useState(matchResults.candidates);
+export default function Dashboard({ matchResults, selectedJob, showJobHeader = true, previousCandidates = [], showFilter = true }: Props) {
+  
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
+  
+  // Determine which candidates to show
+  // If showAllCandidates is true, show everything (previousCandidates contains all)
+  // If false, show only new candidates. If no new candidates, show all.
+  const displayedCandidates = useMemo(() => {
+    if (showAllCandidates || matchResults.new_candidates.length === 0) {
+      // If we have previousCandidates (which includes new ones after refetch), use that
+      // Otherwise fallback to merging
+      return previousCandidates.length > 0 ? previousCandidates : [...matchResults.new_candidates];
+    }
+    return matchResults.new_candidates;
+  }, [showAllCandidates, matchResults.new_candidates, previousCandidates]);
+
+  const [candidates, setCandidates] = useState(displayedCandidates);
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
   const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
   const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
   const [showJobDescription, setShowJobDescription] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   
-  // Update local state when props change
+  // Update local state when props change or toggle changes
   useEffect(() => {
-    setCandidates(matchResults.candidates);
-  }, [matchResults]);
+    if (showAllCandidates || matchResults.new_candidates.length === 0) {
+       setCandidates(previousCandidates.length > 0 ? previousCandidates : [...matchResults.new_candidates]);
+    } else {
+       setCandidates(matchResults.new_candidates);
+    }
+  }, [matchResults, previousCandidates, showAllCandidates]);
 
-  const avgScore =
-    candidates.length > 0
-      ? Math.round(candidates.reduce((sum, c) => sum + c.match, 0) / candidates.length)
-      : 0;
+  // Filter candidates by status and sort by match score descending
+  const filteredCandidates = useMemo(() => {
+    const filtered = statusFilter === 'all' 
+      ? candidates 
+      : candidates.filter(c => (c.status || 'new') === statusFilter);
+      
+    return filtered.sort((a, b) => (b.match || 0) - (a.match || 0));
+  }, [candidates, statusFilter]);
 
   const toggleResume = (resumeId: string) => {
     setExpandedResumeId(expandedResumeId === resumeId ? null : resumeId);
@@ -196,6 +223,25 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
     } catch (error) {
       console.error("Failed to update status:", error);
       // Revert on error (could be improved with better error handling)
+    }
+  };
+
+  const handleNotesSave = async (resumeId: string, newNotes: string) => {
+    if (!selectedJob) return;
+    
+    // Don't save if nothing changed
+    const candidate = candidates.find(c => c.resume_id === resumeId);
+    if (candidate?.notes === newNotes) return;
+
+    try {
+      // Optimistic update
+      setCandidates(prev => prev.map(c => 
+        c.resume_id === resumeId ? { ...c, notes: newNotes } : c
+      ));
+      
+      await updateCandidate(selectedJob.id, resumeId, { notes: newNotes });
+    } catch (error) {
+      console.error("Failed to update notes:", error);
     }
   };
 
@@ -239,7 +285,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
   return (
     <section className={styles.resultsSection}>
       {/* Job Title Header */}
-      {selectedJob && (
+      {showJobHeader && selectedJob && (
         <div className={styles.header}>
           <h2 className={styles.jobTitle}>
             {selectedJob.title}
@@ -509,12 +555,78 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
 
       {/* Candidates Table */}
       <div className={styles.tableSection}>
+        {(matchResults.new_candidates.length > 0 || showFilter) && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+            {matchResults.new_candidates.length > 0 && (
+              <button
+                onClick={() => setShowAllCandidates(!showAllCandidates)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: showAllCandidates ? '#e5e7eb' : '#f3f4f6',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  color: '#374151',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {showAllCandidates ? (
+                  <>
+                    <span>👀</span> Show New Only
+                  </>
+                ) : (
+                  <>
+                    <span>📚</span> Show All Candidates ({previousCandidates.length})
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Status Filter Icon */}
+            {showFilter && (
+              <div style={{ position: 'relative' }}>
+                <FiFilter style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#6b7280', pointerEvents: 'none', zIndex: 1 }} />
+                <select 
+                  value={statusFilter} 
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{
+                    paddingLeft: '32px',
+                    paddingRight: '12px',
+                    height: '36px',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    appearance: 'none',
+                    backgroundColor: statusFilter !== 'all' ? '#eff6ff' : '#f3f4f6',
+                    color: statusFilter !== 'all' ? '#1d4ed8' : '#374151',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    minWidth: '40px'
+                  }}
+                  title="Filter by Status"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="new">New</option>
+                  <option value="reviewed">Reviewed</option>
+                  <option value="shortlisted">Shortlisted</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
         {candidates.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#999' }}>
             <p style={{ fontSize: '1.2rem', margin: 0 }}>No candidates found matching the criteria</p>
           </div>
         ) : (
-          <table className={styles.candidateTable}>
+          <>
+            <table className={styles.candidateTable}>
             <thead>
               <tr>
                 <th>🎯 Match</th>
@@ -527,11 +639,12 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                 <th>✉️ Email</th>
                 <th>📞 Phone</th>
                 <th>📄 Resume</th>
+                <th>📝 Notes</th>
                 <th>📊 Status</th>
               </tr>
             </thead>
             <tbody>
-              {candidates.map((candidate) => (
+              {filteredCandidates.map((candidate) => (
                 <>
                   <tr key={candidate.resume_id} className={expandedResumeId === candidate.resume_id ? styles.expandedRow : ''}>
                     <td>
@@ -678,6 +791,25 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                       )}
                     </td>
                     <td>
+                      <textarea
+                        defaultValue={candidate.notes || ''}
+                        onBlur={(e) => handleNotesSave(candidate.resume_id, e.target.value)}
+                        placeholder="Add notes..."
+                        style={{
+                          width: '100%',
+                          minWidth: '150px',
+                          padding: '8px',
+                          borderRadius: '4px',
+                          border: '1px solid #e5e7eb',
+                          fontSize: '13px',
+                          resize: 'vertical',
+                          minHeight: '38px',
+                          fontFamily: 'inherit',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                    </td>
+                    <td>
                       <div className={styles.statusContainer}>
                         <select
                           className={styles.statusSelect}
@@ -699,7 +831,7 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={11} className={styles.resumeCell}>
+                      <td colSpan={12} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <ResumePreview 
                             url={`${API_URL}${candidate.resume_url}`} 
@@ -713,42 +845,10 @@ export default function Dashboard({ matchResults, selectedJob }: Props) {
               ))}
             </tbody>
           </table>
+          </>
         )}
       </div>
 
-      {/* Statistics Section */}
-      {candidates.length > 0 && (
-        <div className={styles.statsSection}>
-          <div className={styles.statsGrid}>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}>
-                <FiUsers size={24} />
-              </div>
-              <div className={styles.statLabel}>Candidates Found</div>
-              <div className={styles.statValue}>{matchResults.returned} / {matchResults.requested_top_n}</div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}>
-                <FiTrendingUp size={24} />
-              </div>
-              <div className={styles.statLabel}>Average Match</div>
-              <div className={styles.statValue} style={{ color: getScoreColor(avgScore) }}>
-                {avgScore}%
-              </div>
-            </div>
-            {/* Placeholder for more stats */}
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}>
-                <FiAward size={24} />
-              </div>
-              <div className={styles.statLabel}>Top Score</div>
-              <div className={styles.statValue}>
-                {candidates.length > 0 ? `${Math.max(...candidates.map(c => c.match))}%` : '—'}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   )
 }

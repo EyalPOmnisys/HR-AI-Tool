@@ -41,12 +41,12 @@ Don't deviate drastically unless there's a clear reason (e.g., missing critical 
 ### 1. SKILLS MATCH (25 points) - TECHNICAL FOUNDATION ⚡
 
 PROCESS:
-Step 1: Extract ALL technical requirements from job description
+Step 1: Extract the TOP 6-8 CRITICAL technical requirements (ignore generic tools like Jira/Slack unless central to role)
 Step 2: List candidate's technical skills from resume
 Step 3: Count exact and similar matches
 Step 4: Calculate score
 
-FORMULA: (matched_skills / required_skills) × 25
+FORMULA: (matched_skills / critical_skills_count) × 25
 
 MATCHING RULES:
 ✓ Exact match = 1.0 credit (e.g., "Python" = "Python")
@@ -68,12 +68,15 @@ EXAMPLES:
 Compare job title to candidate's "current_title" field, BUT prioritize the *nature of the work* over the exact label.
 Think like an expert HR manager who sees potential and transferability.
 
+⚠️ CRITICAL INSTRUCTION: Focus on FUNCTIONAL EQUIVALENCE, not string matching.
+If a candidate's title is "Member of Technical Staff" or "Associate" but they do the exact work required, treat it as an EXACT MATCH.
+
 SCORING SCALE:
-✓ 30 points: Exact, highly similar, or functionally equivalent role
+✓ 30 points: Functionally equivalent role (regardless of exact wording)
   Examples: "Full Stack Developer" ↔ "Software Engineer"
-            "DevOps Engineer" ↔ "SRE"
-            "Data Scientist" ↔ "ML Engineer"
-            "Emerging Tech Roles" ↔ "Traditional Roles" (IF underlying stack matches, e.g., AI Dev building Web Apps)
+            "MTS / Member of Technical Staff" ↔ "Senior Engineer"
+            "Consultant" ↔ "Developer" (if the project work is development)
+            "Founder/CTO" (at small startup) ↔ "Senior Developer"
 
 ✓ 20-25 points: Related role, same domain or strong transferable skills
   Examples: "Backend Developer" for "Full Stack Developer"
@@ -104,30 +107,16 @@ SCORING LOGIC - PROXIMITY-BASED WITH SENIORITY ADJUSTMENT:
 ✓ 75-90% of required years: 11-15 points (moderately under-qualified)
 ✓ **90-99% of required years:** 18-19 points (Treat as effectively qualified - e.g., missing a few months is a PASS)
 
-**Perfect match:**
-✓ Exact match to +1 year: 20 points (optimal range)
+**Over-qualified:**
 
-**Over-qualified (with NON-LINEAR seniority adjustment):**
+✓ Generally, treat extra experience as a BONUS, not a penalty.
+✓ Only penalize if the gap is extreme (e.g., 15+ years for a Junior role), suggesting flight risk or boredom.
 
-The more senior the role, the LESS critical experience gaps become.
-This reflects real-world hiring: 10→15 years matters less than 2→5 years.
+SCORING:
+✓ Candidate has MORE years than required: 20 points (Full Score)
+✓ EXCEPTION: If Candidate has >3x the required years for a JUNIOR role (e.g., 10 years for a 2-year role): 15 points.
 
-✓ For JUNIOR roles (required < 5 years):
-  - Strict decay: -3.6 points per year beyond +1
-  - Example: R=4, C=7 → 20 - (2 × 3.6) = 12.8 points
-  - Reason: Over-qualification is more problematic in junior roles
-  
-✓ For MID roles (required 5-6 years):
-  - Moderate decay: -2.4 points per year beyond +1
-  - Example: R=5, C=8 → 20 - (2 × 2.4) = 15.2 points
-  - Reason: Some flexibility, but over-qualification still matters
-  
-✓ For SENIOR roles (required 7+ years):
-  - Gentle decay: -1.2 points per year beyond +1
-  - Example: R=7, C=10 → 20 - (2 × 1.2) = 17.6 points ✓✓
-  - Example: R=10, C=15 → 20 - (4 × 1.2) = 15.2 points ✓
-  - Reason: At senior levels, 7→10 or 10→12 years is NOT critical
-
+**Key Principle:** Experience is an asset. Do not penalize candidates for being "too good" unless it's a clear mismatch (e.g. VP applying for Junior Dev).
 **Key Principle:** Experience gaps have diminishing impact as seniority increases.
 A candidate with 10 years applying for a 7-year senior role loses minimal points (17.6/20).
 But a candidate with 7 years for a 4-year junior role loses more (12.8/20) due to over-qualification concerns.

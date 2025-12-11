@@ -5,11 +5,11 @@ import styles from './AISearch.module.css';
 import Form from '../../components/ai-search/Form/Form';
 import Loading from '../../components/ai-search/Loading/Loading';
 import Dashboard from '../../components/ai-search/Dashboard/Dashboard';
-import { listJobs } from '../../services/jobs';
+import { listJobs, getJobCandidates } from '../../services/jobs';
 import type { ApiJob } from '../../types/job';
 import ProgressSteps from '../../components/ai-search/ProgressSteps/ProgressSteps';
 import { runMatch } from '../../services/match';
-import type { MatchRunResponse } from '../../types/match';
+import type { MatchRunResponse, CandidateRow } from '../../types/match';
 import { loadingMessages, loadingIcons } from '../../data/loadingMessages';
 
 type ViewState = 'form' | 'loading' | 'results';
@@ -21,7 +21,6 @@ export default function AISearch(): ReactElement {
 
   // Form state
   const [desiredCandidates, setDesiredCandidates] = useState(10);
-  const [statusFilter, setStatusFilter] = useState<string[]>(['new']);
 
   // View state
   const [view, setView] = useState<ViewState>('form');
@@ -29,6 +28,7 @@ export default function AISearch(): ReactElement {
   // Match results from backend
   const [matchResults, setMatchResults] = useState<MatchRunResponse | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
+  const [previousCandidates, setPreviousCandidates] = useState<CandidateRow[]>([]);
 
   // Loading sequence control
   const [activeLoadingMessage, setActiveLoadingMessage] = useState(0);
@@ -101,17 +101,6 @@ export default function AISearch(): ReactElement {
     setDesiredCandidates(Math.min(Math.max(nextValue, 1), 20));
   };
 
-  const handleStatusFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const options = event.target.options;
-    const value: string[] = [];
-    for (let i = 0, l = options.length; i < l; i++) {
-      if (options[i].selected) {
-        value.push(options[i].value);
-      }
-    }
-    setStatusFilter(value);
-  };
-
   const resetTimers = useCallback(() => {
     if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
     if (loadingTickerRef.current) clearInterval(loadingTickerRef.current);
@@ -125,6 +114,7 @@ export default function AISearch(): ReactElement {
     resetTimers();
     setActiveLoadingMessage(0);
     setMatchError(null);
+    setPreviousCandidates([]);
     setView('loading');
 
     // Cycle through loading messages every 2s
@@ -134,18 +124,23 @@ export default function AISearch(): ReactElement {
 
     try {
       // Call the real API with user-selected number of candidates
-      // If statusFilter is empty, default to ['new']
-      const effectiveStatusFilter = statusFilter.length > 0 ? statusFilter : ['new'];
-      
       const result = await runMatch({
         job_id: selectedJobId,
         top_n: desiredCandidates,
-        status_filter: effectiveStatusFilter,
         min_threshold: 0,
       });
 
       resetTimers();
       setMatchResults(result);
+      
+      // Always fetch existing candidates to allow "Show All" in Dashboard
+      try {
+        const existing = await getJobCandidates(selectedJobId);
+        setPreviousCandidates(existing);
+      } catch (error) {
+        console.error('Failed to load existing candidates:', error);
+      }
+      
       setView('results');
     } catch (error) {
       resetTimers();
@@ -160,6 +155,7 @@ export default function AISearch(): ReactElement {
     setActiveLoadingMessage(0);
     setMatchResults(null);
     setMatchError(null);
+    setPreviousCandidates([]);
     setView('form');
   };
 
@@ -192,13 +188,11 @@ export default function AISearch(): ReactElement {
           jobs={jobs}
           selectedJobId={selectedJobId}
           desiredCandidates={desiredCandidates}
-          statusFilter={statusFilter}
           selectedJob={selectedJob}
           isLoadingJobs={isLoadingJobs}
           error={matchError}
           onJobChange={handleJobChange}
           onCandidateChange={handleCandidateChange}
-          onStatusFilterChange={handleStatusFilterChange}
           onSubmit={handleGenerate}
         />
       )}
@@ -208,7 +202,14 @@ export default function AISearch(): ReactElement {
       )}
 
       {view === 'results' && matchResults && (
-        <Dashboard matchResults={matchResults} selectedJob={selectedJob} />
+        <>
+          <Dashboard 
+            matchResults={matchResults} 
+            selectedJob={selectedJob}
+            previousCandidates={previousCandidates}
+            showFilter={false}
+          />
+        </>
       )}
     </div>
   );

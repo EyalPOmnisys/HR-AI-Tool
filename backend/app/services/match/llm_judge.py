@@ -437,8 +437,13 @@ class LLMJudge:
         """
         Merge LLM evaluations back into candidate dictionaries.
         
+        Scoring logic:
+        - rag_score: Preserved from Stage 1 ensemble (RAG + Skills + Title + Experience + Stability)
+        - llm_score: Stage 2 LLM evaluation score (from LLM's final_score output)
+        - final_score: Blended score (30% Stage 1 + 70% Stage 2)
+        
         Returns:
-            List of candidates with llm_analysis and final_score
+            List of candidates with llm_analysis, llm_score, and blended final_score
         """
         # Build lookup map: resume_id -> evaluation
         eval_map = {}
@@ -456,23 +461,31 @@ class LLMJudge:
             resume_id = str(candidate["resume_id"])
             evaluation = eval_map.get(resume_id)
             
+            # Stage 1 ensemble score (already in candidate from ensemble.py)
+            stage1_score = candidate.get("rag_score", 0)
+            
             if evaluation:
-                # LLM evaluation found - use LLM score as final
-                final_score = evaluation.get("final_score", 0)
+                # Stage 2 LLM score (from LLM evaluation)
+                stage2_score = evaluation.get("final_score", 0)
+                
+                # Blend scores: 30% Stage 1 (ensemble) + 70% Stage 2 (LLM)
+                blended_final_score = int((stage1_score * 0.3) + (stage2_score * 0.7))
                 
                 results.append({
                     **candidate,
-                    "final_score": final_score,
+                    "llm_score": stage2_score,  # Stage 2 LLM score
+                    "final_score": blended_final_score,  # Blended final score
                     "llm_analysis": {
                         "strengths": evaluation.get("strengths", ""),
                         "concerns": evaluation.get("concerns", "")
                     }
                 })
             else:
-                # No LLM evaluation (error case) - use algorithmic score
+                # No LLM evaluation (error case) - use Stage 1 score only
                 results.append({
                     **candidate,
-                    "final_score": candidate.get("rag_score", 0),
+                    "llm_score": 0,  # No LLM score available
+                    "final_score": stage1_score,  # Fall back to Stage 1 ensemble score
                     "llm_analysis": {
                         "strengths": "LLM evaluation not available",
                         "concerns": "Could not complete LLM analysis"

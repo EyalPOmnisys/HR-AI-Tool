@@ -31,7 +31,7 @@ async def search_and_score_candidates(
     session: AsyncSession,
     job: Job,
     limit: int = 50,
-    status_filter: List[str] | None = None
+    exclude_resume_ids: set[UUID] | None = None
 ) -> List[Dict[str, Any]]:
     """
     Main ensemble scorer combining multiple algorithms.
@@ -47,7 +47,7 @@ async def search_and_score_candidates(
         session: Database session
         job: Job to match candidates against
         limit: Number of top candidates to return after scoring ALL
-        status_filter: Optional list of statuses to filter by
+        exclude_resume_ids: Set of resume IDs to exclude from search (already reviewed)
         
     Returns:
         List of top N candidate dicts with scores, breakdown, and metadata
@@ -56,8 +56,8 @@ async def search_and_score_candidates(
     logger.info(f"ENSEMBLE SCORING: Job '{job.title}' (id={job.id})")
     logger.info("=" * 80)
     logger.info(f"Will score ALL candidates and return top {limit}")
-    if status_filter:
-        logger.info(f"Filtering by status: {status_filter}")
+    if exclude_resume_ids:
+        logger.info(f"Excluding {len(exclude_resume_ids)} already-reviewed candidates")
     logger.info("")
     
     # ===== STAGE 1: RAG Vector Search (Semantic Filtering) =====
@@ -75,7 +75,7 @@ async def search_and_score_candidates(
         limit=None,
         min_threshold=None,
         job_id=job.id,
-        status_filter=status_filter
+        exclude_resume_ids=exclude_resume_ids
     )
     
     logger.info(f"RAG search found {len(rag_candidates)} candidates (ALL resumes in DB)")

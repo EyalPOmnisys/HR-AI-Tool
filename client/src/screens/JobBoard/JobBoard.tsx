@@ -8,6 +8,7 @@ import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
 import { createJob, listJobs, updateJob, deleteJob as deleteJobApi, getJob } from '../../services/jobs'
 import type { ApiJob } from '../../types/job'
+import JobDetails from './JobDetails' // Import the new component
 
 // Mapper: ApiJob → UI Job
 const mapApiToUi = (api: ApiJob): Job => ({
@@ -29,6 +30,7 @@ export const JobBoard = (): ReactElement => {
   const [detailsJobId, setDetailsJobId] = useState<string | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [activeJobId, setActiveJobId] = useState<string | null>(null) // For full page details
 
   // simple in-flight polling refs to avoid multiple intervals
   const pollingMapRef = useRef<Record<string, number>>({})
@@ -93,8 +95,7 @@ export const JobBoard = (): ReactElement => {
   }
 
   const handleCardOpen = (job: Job) => {
-    setDetailsJobId(job.id)
-    setIsDetailsOpen(true)
+    setActiveJobId(job.id)
   }
 
   const handleDelete = async (jobId: string) => {
@@ -179,6 +180,10 @@ export const JobBoard = (): ReactElement => {
       pollingMapRef.current = {}
     }
   }, [])
+
+  if (activeJobId) {
+    return <JobDetails jobId={activeJobId} onBack={() => setActiveJobId(null)} />
+  }
 
   return (
     <div className={styles.page}>

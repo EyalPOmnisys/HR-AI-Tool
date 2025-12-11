@@ -4,7 +4,6 @@ export type MatchRunRequest = {
   job_id: string;
   top_n?: number; // User selects 1-20, default 10
   min_threshold?: number; // Not used anymore
-  status_filter?: string[]; // Filter by candidate status
 };
 
 export type RAGBreakdown = {
@@ -34,12 +33,15 @@ export type CandidateRow = {
   stability_score?: number;
   stability_verdict?: string;
   status?: string; // new, reviewed, shortlisted, rejected
+  notes?: string; // Free text notes
 };
 
 export type MatchRunResponse = {
   job_id: string;
   requested_top_n: number;
   min_threshold: number;
-  returned: number;
-  candidates: CandidateRow[];
+  new_candidates: CandidateRow[];
+  new_count: number;
+  previously_reviewed_count: number;
+  all_candidates_already_reviewed: boolean;
 };

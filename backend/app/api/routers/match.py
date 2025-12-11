@@ -14,8 +14,7 @@ async def run_match(payload: MatchRunRequest, db: AsyncSession = Depends(get_asy
             db, 
             payload.job_id, 
             payload.top_n, 
-            payload.min_threshold,
-            payload.status_filter
+            payload.min_threshold
         )
         return MatchRunResponse(**res)
     except Exception as e:
