@@ -220,8 +220,8 @@ export default function JobDetails({ jobId, onBack }: Props) {
         )}
       </div>
 
-      <MatchStatsPanel candidates={candidates} variant="minimal" />
       <Dashboard matchResults={matchResponse} selectedJob={job} showJobHeader={false} previousCandidates={candidates} />
+      <MatchStatsPanel candidates={candidates} variant="minimal" />
     </div>
   );
 }

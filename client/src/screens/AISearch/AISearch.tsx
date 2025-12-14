@@ -133,10 +133,12 @@ export default function AISearch(): ReactElement {
       resetTimers();
       setMatchResults(result);
       
-      // Always fetch existing candidates to allow "Show All" in Dashboard
+      // Fetch existing candidates for this job to allow filtering by status
       try {
         const existing = await getJobCandidates(selectedJobId);
-        setPreviousCandidates(existing);
+        // Filter to only include candidates that have been matched to this job (have a score)
+        const matchedCandidates = existing.filter(c => c.match !== undefined && c.match !== null && c.match > 0);
+        setPreviousCandidates(matchedCandidates);
       } catch (error) {
         console.error('Failed to load existing candidates:', error);
       }
@@ -207,7 +209,8 @@ export default function AISearch(): ReactElement {
             matchResults={matchResults} 
             selectedJob={selectedJob}
             previousCandidates={previousCandidates}
-            showFilter={false}
+            showFilter={true}
+            showGeneratedNow={true}
           />
         </>
       )}

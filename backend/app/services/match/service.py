@@ -178,6 +178,7 @@ class MatchService:
 
             return {
                 "resume_id": jc.resume_id,
+                "status": jc.status,
                 "rag_score": jc.rag_score or 0,
                 "final_score": jc.match_score or jc.rag_score or 0, # Use match_score if available, else rag_score
                 "llm_score": jc.llm_score,
@@ -223,16 +224,16 @@ class MatchService:
         # For the final return list, we probably want to sort by final_score.
         # Let's sort by rag_score first to pick the top N for LLM.
         
-        # Filter out candidates that already have LLM score (already fully reviewed)
-        # This ensures we bring the "next best" candidates who haven't been seen yet
+        # Filter: Keep only candidates that are effectively "NEW" (Status based)
+        # This ensures we keep seeing the best candidates until the human moves them to another status.
         candidates_pool_for_selection = [
             c for c in all_candidates_data 
-            if c.get("llm_score") is None
+            if c.get("status", "new") == "new"
         ]
         
         candidates_pool_for_selection.sort(key=lambda x: x["rag_score"], reverse=True)
         
-        logger.info(f"Total candidates available for selection (excluding already reviewed): {len(candidates_pool_for_selection)}")
+        logger.info(f"Total candidates available for selection (Status=new): {len(candidates_pool_for_selection)}")
         
         # Select Top N for LLM Evaluation
         candidates_for_llm_pool = candidates_pool_for_selection[:top_n]

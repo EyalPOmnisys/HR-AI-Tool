@@ -34,7 +34,7 @@ const mapSummary = (item: ApiResumeSummary): ResumeSummary => ({
   summary: item.summary ?? null,
 });
 
-export async function listResumes(offset = 0, limit = 50): Promise<ResumeListResponse> {
+export async function listResumes(offset = 0, limit = 10000): Promise<ResumeListResponse> {
   const res = await fetch(`${API_URL}/resumes?offset=${offset}&limit=${limit}`);
   if (!res.ok) {
     const text = await res.text().catch(() => '');

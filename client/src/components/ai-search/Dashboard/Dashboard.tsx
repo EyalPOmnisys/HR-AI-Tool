@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import styles from './Dashboard.module.css'
 import type { MatchRunResponse, CandidateRow } from '../../../types/match'
 import type { ApiJob } from '../../../types/job'
-import { FiChevronDown, FiChevronUp, FiHelpCircle, FiX, FiCheckCircle, FiXCircle, FiEye, FiClock, FiFilter } from 'react-icons/fi'
+import { FiChevronDown, FiChevronUp, FiHelpCircle, FiX, FiCheckCircle, FiXCircle, FiEye, FiClock } from 'react-icons/fi'
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
 import { renderAsync } from 'docx-preview'
 import { updateCandidateStatus, updateCandidate } from '../../../services/jobs'
+import { SegmentedControl } from '../../common/SegmentedControl/SegmentedControl'
 
 type Props = {
   matchResults: MatchRunResponse
@@ -13,6 +14,7 @@ type Props = {
   showJobHeader?: boolean
   previousCandidates?: CandidateRow[]
   showFilter?: boolean
+  showGeneratedNow?: boolean
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -165,43 +167,57 @@ function formatAIInsight(text: string | undefined | null): React.ReactNode {
 }
 
 
-export default function Dashboard({ matchResults, selectedJob, showJobHeader = true, previousCandidates = [], showFilter = true }: Props) {
+export default function Dashboard({ matchResults, selectedJob, showJobHeader = true, previousCandidates = [], showFilter = true, showGeneratedNow = false }: Props) {
   
-  const [showAllCandidates, setShowAllCandidates] = useState(false);
+  // Keep a local editable copy of all candidates (from DB)
+  const [allCandidates, setAllCandidates] = useState<CandidateRow[]>(previousCandidates);
   
-  // Determine which candidates to show
-  // If showAllCandidates is true, show everything (previousCandidates contains all)
-  // If false, show only new candidates. If no new candidates, show all.
+  // Keep a local editable copy of generated candidates
+  const [generatedCandidates, setGeneratedCandidates] = useState<CandidateRow[]>(matchResults.new_candidates);
+  
+  // Sync allCandidates with previousCandidates when it changes
+  useEffect(() => {
+    setAllCandidates(previousCandidates);
+  }, [previousCandidates]);
+  
+  // Sync generatedCandidates with matchResults.new_candidates when it changes
+  useEffect(() => {
+    setGeneratedCandidates(matchResults.new_candidates);
+  }, [matchResults.new_candidates]);
+  
+  // Determine which candidates to show based on filter
+  // When showGeneratedNow is true (AISearch), we have a special "Generated Now" filter
+  // All other filters show all candidates from DB (allCandidates)
+  const [statusFilter, setStatusFilter] = useState<string>(showGeneratedNow ? 'generated' : 'all');
+  
   const displayedCandidates = useMemo(() => {
-    if (showAllCandidates || matchResults.new_candidates.length === 0) {
-      // If we have previousCandidates (which includes new ones after refetch), use that
-      // Otherwise fallback to merging
-      return previousCandidates.length > 0 ? previousCandidates : [...matchResults.new_candidates];
+    // For "Generated Now" filter, show only new candidates from this run
+    if (statusFilter === 'generated') {
+      return generatedCandidates;
     }
-    return matchResults.new_candidates;
-  }, [showAllCandidates, matchResults.new_candidates, previousCandidates]);
+    // For all other filters, show all candidates from DB
+    return allCandidates.length > 0 ? allCandidates : generatedCandidates;
+  }, [statusFilter, generatedCandidates, allCandidates]);
 
   const [candidates, setCandidates] = useState(displayedCandidates);
   const [expandedResumeId, setExpandedResumeId] = useState<string | null>(null);
   const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
   const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
   const [showJobDescription, setShowJobDescription] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   
-  // Update local state when props change or toggle changes
+  // Update local state when props or filter change
   useEffect(() => {
-    if (showAllCandidates || matchResults.new_candidates.length === 0) {
-       setCandidates(previousCandidates.length > 0 ? previousCandidates : [...matchResults.new_candidates]);
-    } else {
-       setCandidates(matchResults.new_candidates);
-    }
-  }, [matchResults, previousCandidates, showAllCandidates]);
+    setCandidates(displayedCandidates);
+  }, [displayedCandidates]);
 
   // Filter candidates by status and sort by match score descending
   const filteredCandidates = useMemo(() => {
-    const filtered = statusFilter === 'all' 
-      ? candidates 
-      : candidates.filter(c => (c.status || 'new') === statusFilter);
+    let filtered = candidates;
+    
+    // Only apply status filter for specific statuses (not 'all' or 'generated')
+    if (statusFilter !== 'all' && statusFilter !== 'generated') {
+      filtered = candidates.filter(c => (c.status || 'new') === statusFilter);
+    }
       
     return filtered.sort((a, b) => (b.match || 0) - (a.match || 0));
   }, [candidates, statusFilter]);
@@ -214,10 +230,35 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
     if (!selectedJob) return;
     
     try {
-      // Optimistic update
+      // Optimistic update - update current view
       setCandidates(prev => prev.map(c => 
         c.resume_id === resumeId ? { ...c, status: newStatus } : c
       ));
+      
+      // Update generatedCandidates if this candidate is from Generated Now
+      setGeneratedCandidates(prev => {
+        const exists = prev.some(c => c.resume_id === resumeId);
+        if (exists) {
+          return prev.map(c => c.resume_id === resumeId ? { ...c, status: newStatus } : c);
+        }
+        return prev;
+      });
+      
+      // Update allCandidates so changes persist when switching tabs
+      setAllCandidates(prev => {
+        const existing = prev.find(c => c.resume_id === resumeId);
+        if (existing) {
+          // Update existing candidate
+          return prev.map(c => c.resume_id === resumeId ? { ...c, status: newStatus } : c);
+        } else {
+          // Add new candidate from Generated Now to allCandidates
+          const newCandidate = generatedCandidates.find(c => c.resume_id === resumeId);
+          if (newCandidate) {
+            return [...prev, { ...newCandidate, status: newStatus }];
+          }
+          return prev;
+        }
+      });
       
       await updateCandidateStatus(selectedJob.id, resumeId, newStatus);
     } catch (error) {
@@ -555,68 +596,59 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
 
       {/* Candidates Table */}
       <div className={styles.tableSection}>
-        {(matchResults.new_candidates.length > 0 || showFilter) && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
-            {matchResults.new_candidates.length > 0 && (
-              <button
-                onClick={() => setShowAllCandidates(!showAllCandidates)}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: showAllCandidates ? '#e5e7eb' : '#f3f4f6',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  color: '#374151',
-                  fontSize: '13px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                {showAllCandidates ? (
-                  <>
-                    <span>👀</span> Show New Only
-                  </>
-                ) : (
-                  <>
-                    <span>📚</span> Show All Candidates ({previousCandidates.length})
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* Status Filter Icon */}
-            {showFilter && (
-              <div style={{ position: 'relative' }}>
-                <FiFilter style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#6b7280', pointerEvents: 'none', zIndex: 1 }} />
-                <select 
-                  value={statusFilter} 
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  style={{
-                    paddingLeft: '32px',
-                    paddingRight: '12px',
-                    height: '36px',
-                    borderRadius: '6px',
-                    border: '1px solid #d1d5db',
-                    appearance: 'none',
-                    backgroundColor: statusFilter !== 'all' ? '#eff6ff' : '#f3f4f6',
-                    color: statusFilter !== 'all' ? '#1d4ed8' : '#374151',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    minWidth: '40px'
-                  }}
-                  title="Filter by Status"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="new">New</option>
-                  <option value="reviewed">Reviewed</option>
-                  <option value="shortlisted">Shortlisted</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
-            )}
+        {candidates.length > 0 && showFilter && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '20px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            {/* Status Filter Segmented Control */}
+            <div style={{ flex: 1, minWidth: '100%' }}>
+              <SegmentedControl
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  ...(showGeneratedNow ? [{
+                    value: 'generated',
+                    label: 'Generated Now',
+                    icon: '✨',
+                    count: generatedCandidates.length,
+                    disabled: generatedCandidates.length === 0
+                  }] : []),
+                  { 
+                    value: 'all', 
+                    label: 'All', 
+                    icon: <FiClock />,
+                    count: allCandidates.length > 0 ? allCandidates.length : generatedCandidates.length,
+                    disabled: (allCandidates.length > 0 ? allCandidates.length : generatedCandidates.length) === 0
+                  },
+                  { 
+                    value: 'new', 
+                    label: 'New', 
+                    icon: '🕐',
+                    count: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => (c.status || 'new') === 'new').length,
+                    disabled: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => (c.status || 'new') === 'new').length === 0
+                  },
+                  { 
+                    value: 'reviewed', 
+                    label: 'Reviewed', 
+                    icon: '👁️',
+                    count: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'reviewed').length,
+                    disabled: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'reviewed').length === 0
+                  },
+                  { 
+                    value: 'shortlisted', 
+                    label: 'Shortlisted', 
+                    icon: '✅',
+                    count: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'shortlisted').length,
+                    disabled: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'shortlisted').length === 0
+                  },
+                  { 
+                    value: 'rejected', 
+                    label: 'Rejected', 
+                    icon: '❌',
+                    count: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'rejected').length,
+                    disabled: (allCandidates.length > 0 ? allCandidates : generatedCandidates).filter(c => c.status === 'rejected').length === 0
+                  }
+                ]}
+              />
+            </div>
           </div>
         )}
 
@@ -634,13 +666,12 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                 <th>💼 Title</th>
                 <th>📅 Experience</th>
                 <th>🏢 Stability</th>
-                <th>💪 Strengths</th>
-                <th>⚠️ Concerns</th>
-                <th>✉️ Email</th>
+                <th>📊 Status</th>
                 <th>📞 Phone</th>
                 <th>📄 Resume</th>
                 <th>📝 Notes</th>
-                <th>📊 Status</th>
+                <th>💪 Strengths</th>
+                <th>⚠️ Concerns</th>
               </tr>
             </thead>
             <tbody>
@@ -688,70 +719,24 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                         <span style={{ color: '#999' }}>—</span>
                       )}
                     </td>
-                    <td className={`${styles.aiInsightCell} ${expandedStrengths.has(candidate.resume_id) ? styles.expanded : ''}`}>
-                      {candidate.llm_strengths ? (
-                        <div className={styles.aiInsightWrapper}>
-                          <button
-                            onClick={() => toggleStrengths(candidate.resume_id)}
-                            className={styles.expandButton}
-                          >
-                            {expandedStrengths.has(candidate.resume_id) ? (
-                              <>
-                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
-                                Hide
-                              </>
-                            ) : (
-                              <>
-                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
-                                Show ({countBullets(candidate.llm_strengths)})
-                              </>
-                            )}
-                          </button>
-                          <div className={`${styles.aiInsight} ${styles.strengthsInsight} ${expandedStrengths.has(candidate.resume_id) ? styles.visible : ''}`}>
-                              {formatAIInsight(candidate.llm_strengths)}
-                          </div>
-                        </div>
-                      ) : (
-                        <span style={{ color: '#999' }}>—</span>
-                      )}
-                    </td>
-                    <td className={`${styles.aiInsightCell} ${expandedConcerns.has(candidate.resume_id) ? styles.expanded : ''}`}>
-                      {candidate.llm_concerns && !hasNoConcerns(candidate.llm_concerns) ? (
-                        <div className={styles.aiInsightWrapper}>
-                          <button
-                            onClick={() => toggleConcerns(candidate.resume_id)}
-                            className={styles.expandButton}
-                          >
-                            {expandedConcerns.has(candidate.resume_id) ? (
-                              <>
-                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
-                                Hide
-                              </>
-                            ) : (
-                              <>
-                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
-                                Show ({countBullets(candidate.llm_concerns)})
-                              </>
-                            )}
-                          </button>
-                          <div className={`${styles.aiInsight} ${styles.concernsInsight} ${expandedConcerns.has(candidate.resume_id) ? styles.visible : ''}`}>
-                              {formatAIInsight(candidate.llm_concerns)}
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ color: '#10b981', fontStyle: 'italic', padding: '8px' }}>
-                          ✓ No significant concerns
-                        </div>
-                      )}
-                    </td>
                     <td>
-                      {candidate.email ? (
-                        <a href={`mailto:${candidate.email}`} className={styles.contactLink}>
-                          {candidate.email}
-                        </a>
-                      ) : (
-                        <span style={{ color: '#999' }}>—</span>
-                      )}
+                      <div className={styles.statusContainer}>
+                        <select
+                          className={styles.statusSelect}
+                          value={candidate.status || 'new'}
+                          onChange={(e) => handleStatusChange(candidate.resume_id, e.target.value)}
+                          style={{
+                            backgroundColor: getStatusBadge(candidate.status).bg,
+                            color: getStatusBadge(candidate.status).color,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="new">🕐 New</option>
+                          <option value="reviewed">👁️ Reviewed</option>
+                          <option value="shortlisted">✅ Shortlisted</option>
+                          <option value="rejected">❌ Rejected</option>
+                        </select>
+                      </div>
                     </td>
                     <td>
                       {candidate.phone ? (
@@ -809,24 +794,61 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                         }}
                       />
                     </td>
-                    <td>
-                      <div className={styles.statusContainer}>
-                        <select
-                          className={styles.statusSelect}
-                          value={candidate.status || 'new'}
-                          onChange={(e) => handleStatusChange(candidate.resume_id, e.target.value)}
-                          style={{
-                            backgroundColor: getStatusBadge(candidate.status).bg,
-                            color: getStatusBadge(candidate.status).color,
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <option value="new">🕐 New</option>
-                          <option value="reviewed">👁️ Reviewed</option>
-                          <option value="shortlisted">✅ Shortlisted</option>
-                          <option value="rejected">❌ Rejected</option>
-                        </select>
-                      </div>
+                    <td className={`${styles.aiInsightCell} ${expandedStrengths.has(candidate.resume_id) ? styles.expanded : ''}`}>
+                      {candidate.llm_strengths ? (
+                        <div className={styles.aiInsightWrapper}>
+                          <button
+                            onClick={() => toggleStrengths(candidate.resume_id)}
+                            className={styles.expandButton}
+                          >
+                            {expandedStrengths.has(candidate.resume_id) ? (
+                              <>
+                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
+                                Hide
+                              </>
+                            ) : (
+                              <>
+                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
+                                Show ({countBullets(candidate.llm_strengths)})
+                              </>
+                            )}
+                          </button>
+                          <div className={`${styles.aiInsight} ${styles.strengthsInsight} ${expandedStrengths.has(candidate.resume_id) ? styles.visible : ''}`}>
+                              {formatAIInsight(candidate.llm_strengths)}
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#999' }}>—</span>
+                      )}
+                    </td>
+                    <td className={`${styles.aiInsightCell} ${expandedConcerns.has(candidate.resume_id) ? styles.expanded : ''}`}>
+                      {candidate.llm_concerns && !hasNoConcerns(candidate.llm_concerns) ? (
+                        <div className={styles.aiInsightWrapper}>
+                          <button
+                            onClick={() => toggleConcerns(candidate.resume_id)}
+                            className={styles.expandButton}
+                          >
+                            {expandedConcerns.has(candidate.resume_id) ? (
+                              <>
+                                <FiChevronUp size={14} style={{ marginRight: '4px' }} />
+                                Hide
+                              </>
+                            ) : (
+                              <>
+                                <FiChevronDown size={14} style={{ marginRight: '4px' }} />
+                                Show ({countBullets(candidate.llm_concerns)})
+                              </>
+                            )}
+                          </button>
+                          <div className={`${styles.aiInsight} ${styles.concernsInsight} ${expandedConcerns.has(candidate.resume_id) ? styles.visible : ''}`}>
+                              {formatAIInsight(candidate.llm_concerns)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ color: '#10b981', fontStyle: 'italic', padding: '8px' }}>
+                          ✓ No significant concerns
+                        </div>
+                      )}
                     </td>
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
