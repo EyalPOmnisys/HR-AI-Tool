@@ -80,11 +80,21 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
     try:
         logger.info("Analyze job '%s' [%s]", job.title, job.id)
 
+        # Preserve existing additional_skills before AI analysis
+        existing_additional_skills = None
+        if job.analysis_json and isinstance(job.analysis_json, dict):
+            existing_additional_skills = job.analysis_json.get('additional_skills')
+
         analysis_json, model_name, version = analyze_job_text(
             title=job.title,
             description=job.job_description,
             free_text=job.free_text,
         )
+        
+        # Restore additional_skills after AI analysis
+        if existing_additional_skills is not None:
+            analysis_json['additional_skills'] = existing_additional_skills
+        
         job.analysis_json = analysis_json
         job.analysis_model = model_name
         job.analysis_version = version

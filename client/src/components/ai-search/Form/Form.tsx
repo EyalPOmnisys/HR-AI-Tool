@@ -265,6 +265,23 @@ export default function Form({
                   </div>
                 ) : null}
 
+                {/* Additional Skills */}
+                {selectedJob.additional_skills?.length ? (
+                  <div className={styles.section}>
+                    <h3 className={styles.sectionTitle}>
+                      <span className={styles.badge} style={{ background: '#f0f9ff', color: '#1e40af', borderColor: '#bfdbfe' }}>Manual</span>
+                      Additional Skills
+                    </h3>
+                    <div className={styles.skillsGrid}>
+                      {selectedJob.additional_skills.map((skill) => (
+                        <span key={skill} className={styles.skillTag} style={{ background: '#f0f9ff', color: '#1e40af', borderColor: '#bfdbfe' }}>
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* Responsibilities */}
                 {analysis?.responsibilities?.length ? (
                   <div className={styles.section}>

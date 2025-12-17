@@ -446,17 +446,19 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     # If model provided languages, keep them (after cleaning).
     # If empty, detect explicit mentions in text (e.g., "English - fluent").
     langs = data.get("languages") or []
-    cleaned_langs: List[Dict[str, Any]] = []
+    cleaned_langs: List[str] = []
     if langs:
         for obj in langs:
-            name = (obj or {}).get("name")
-            level = (obj or {}).get("level")
-            if name:
-                cleaned_langs.append({"name": name.strip(), "level": level if level in {"basic", "conversational", "fluent", "native", None} else None})
+            if isinstance(obj, str):
+                cleaned_langs.append(obj.strip())
+            elif isinstance(obj, dict):
+                name = obj.get("name")
+                if name:
+                    cleaned_langs.append(name.strip())
     else:
         for hn in _HUMAN_LANGS:
             if hn in text_blob:
-                cleaned_langs.append({"name": hn.capitalize(), "level": None})
+                cleaned_langs.append(hn.capitalize())
     data["languages"] = cleaned_langs
 
     # ---- Locations inference (gentle, pattern-based) ----

@@ -33,7 +33,7 @@ export const Resumes = (): ReactElement => {
     const fetchResumes = async () => {
       setIsLoading(true)
       try {
-        const response = await listResumes(0, 100)
+        const response = await listResumes(0, 3000)
         if (!isMounted) return
 
         setResumes(response.items)

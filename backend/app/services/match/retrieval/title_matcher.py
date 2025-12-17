@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 import numpy as np
-from typing import List, Optional, Dict, Any, Set
+from typing import List, Optional, Dict, Any, Set, Union
 import requests
 import logging
+from functools import lru_cache
+import asyncio
 
 from app.core.config import settings
 from app.services.match.retrieval.tech_roles_knowledge import get_role_similarity_boost
@@ -29,23 +31,29 @@ class TitleMatcher:
     """
 
     @staticmethod
-    def get_embedding_from_ollama(text: str) -> np.ndarray:
-        """Get embedding from Ollama server"""
+    @lru_cache(maxsize=1024)
+    def get_embedding_from_ollama(text: str) -> tuple:
+        """Get embedding from Ollama server with Caching"""
         try:
+            # Normalize text before sending to cache/api
+            clean_text = ' '.join(text.strip().split())
+            if not clean_text:
+                return tuple(np.zeros(768))
+
             response = requests.post(
                 f"{settings.OLLAMA_BASE_URL}/api/embeddings",
                 json={
                     "model": settings.SENTENCE_TRANSFORMER_MODEL,
-                    "prompt": text
+                    "prompt": clean_text
                 },
-                timeout=30
+                timeout=5
             )
             response.raise_for_status()
             embedding = response.json()["embedding"]
-            return np.array(embedding)
+            return tuple(embedding)
         except Exception as e:
             logger.error(f"Failed to get embedding from Ollama: {e}")
-            raise
+            return tuple(np.zeros(768))
 
     @staticmethod
     def normalize_title(title: str) -> str:
@@ -146,29 +154,39 @@ class TitleMatcher:
         return final_boost
 
     @staticmethod
-    def compute_semantic_similarity(text1: str, text2: str, embedder=None) -> float:
+    def compute_semantic_similarity(
+        text1: Union[str, tuple], 
+        text2: Union[str, tuple], 
+        embedder=None
+    ) -> float:
         """
         Compute semantic similarity between two texts using Ollama embeddings.
+        OPTIMIZATION: Can accept pre-calculated embeddings (tuples) or strings.
         
         Args:
-            text1: First text (job title)
-            text2: Second text (resume title)
+            text1: First text (job title) or embedding tuple
+            text2: Second text (resume title) or embedding tuple
             embedder: Ignored (kept for compatibility)
         
         Returns:
             Similarity score 0-100 (cosine similarity normalized)
         """
-        if not text1 or not text2:
-            return 0.0
-
         try:
-            # Normalize texts
-            t1 = TitleMatcher.normalize_title(text1)
-            t2 = TitleMatcher.normalize_title(text2)
+            # Handle text1 (Job Title)
+            if isinstance(text1, str):
+                if not text1: return 0.0
+                t1 = TitleMatcher.normalize_title(text1)
+                emb1 = np.array(TitleMatcher.get_embedding_from_ollama(t1))
+            else:
+                emb1 = np.array(text1)
 
-            # Get embeddings from Ollama
-            emb1 = TitleMatcher.get_embedding_from_ollama(t1)
-            emb2 = TitleMatcher.get_embedding_from_ollama(t2)
+            # Handle text2 (Resume Title)
+            if isinstance(text2, str):
+                if not text2: return 0.0
+                t2 = TitleMatcher.normalize_title(text2)
+                emb2 = np.array(TitleMatcher.get_embedding_from_ollama(t2))
+            else:
+                emb2 = np.array(text2)
 
             # Cosine similarity
             dot_product = np.dot(emb1, emb2)
@@ -182,9 +200,6 @@ class TitleMatcher:
             cosine_sim = dot_product / (norm1 * norm2)
             
             # Convert to 0-100 scale
-            # Cosine similarity of 1.0 (identical) = 100
-            # Cosine similarity of 0.0 (unrelated) = 0
-            # Negative values (opposite meaning) = 0
             score = max(0.0, cosine_sim) * 100
 
             return round(score, 1)
@@ -195,9 +210,10 @@ class TitleMatcher:
 
     @staticmethod
     def compute_detailed_match(
-        job_title: str,
+        job_title: Union[str, tuple],
         resume_titles: List[str],
-        embedder=None
+        embedder=None,
+        job_title_text: str = ""
     ) -> Dict[str, Any]:
         """
         Compute best title match and return detailed results.
@@ -212,7 +228,13 @@ class TitleMatcher:
                 "all_matches": []
             }
 
-        # embedder parameter ignored - kept for compatibility
+        # Determine the text version of job title for keyword matching
+        if isinstance(job_title, str):
+            j_text = job_title
+            j_emb = None
+        else:
+            j_text = job_title_text
+            j_emb = job_title
 
         # Find best matching title from resume
         best_score = 0.0
@@ -224,17 +246,22 @@ class TitleMatcher:
                 continue
 
             # 1. Semantic similarity (base score 0-100)
+            # Pass j_emb if we have it, otherwise pass j_text
+            input_1 = j_emb if j_emb is not None else j_text
+            
             semantic_score = TitleMatcher.compute_semantic_similarity(
-                job_title,
+                input_1,
                 resume_title,
                 None
             )
             
             # 2. Keyword boost (0-30 bonus points)
-            keyword_boost = TitleMatcher.compute_keyword_boost(
-                job_title,
-                resume_title
-            )
+            keyword_boost = 0.0
+            if j_text:
+                keyword_boost = TitleMatcher.compute_keyword_boost(
+                    j_text,
+                    resume_title
+                )
             
             # 3. Combined score (capped at 100)
             combined_score = min(100.0, semantic_score + keyword_boost)
@@ -251,10 +278,86 @@ class TitleMatcher:
                 best_title = resume_title
                 
         # Log best match for debugging
-        if best_title:
+        if best_title and j_text:
             logger.debug(
-                f"Title match: '{job_title}' ↔ '{best_title}' = {best_score:.1f}%"
+                f"Title match: '{j_text}' ↔ '{best_title}' = {best_score:.1f}%"
             )
+
+        return {
+            "score": best_score,
+            "best_title": best_title,
+            "all_matches": all_matches
+        }
+
+    @staticmethod
+    async def get_embedding_from_ollama_async(text: str) -> tuple:
+        """
+        Non-blocking wrapper for the synchronous get_embedding_from_ollama.
+        Uses a thread to avoid blocking the main event loop.
+        """
+        # This runs the blocking 'requests' call in a separate thread
+        return await asyncio.to_thread(TitleMatcher.get_embedding_from_ollama, text)
+
+    @staticmethod
+    async def compute_detailed_match_async(
+        job_title: Union[str, tuple],
+        resume_titles: List[str],
+        embedder=None,
+        job_title_text: str = ""
+    ) -> Dict[str, Any]:
+        """Async version of compute_detailed_match"""
+        if not job_title or not resume_titles:
+            return {"score": 0.0, "best_title": "", "all_matches": []}
+
+        # Handle Job Title Embedding (Async)
+        if isinstance(job_title, str):
+            j_text = job_title
+            # Fetch embedding in thread
+            j_emb = np.array(await TitleMatcher.get_embedding_from_ollama_async(TitleMatcher.normalize_title(j_text)))
+        else:
+            j_text = job_title_text
+            j_emb = np.array(job_title)
+
+        best_score = 0.0
+        best_title = ""
+        all_matches = []
+
+        # Process all resume titles
+        for resume_title in resume_titles:
+            if not resume_title or not resume_title.strip():
+                continue
+
+            # 1. Semantic (Fast calculation using numpy, no I/O if j_emb is ready)
+            # Let's fetch resume title embedding async
+            r_emb = np.array(await TitleMatcher.get_embedding_from_ollama_async(TitleMatcher.normalize_title(resume_title)))
+            
+            # Dot product
+            dot_product = np.dot(j_emb, r_emb)
+            norm1 = np.linalg.norm(j_emb)
+            norm2 = np.linalg.norm(r_emb)
+            
+            semantic_score = 0.0
+            if norm1 > 0 and norm2 > 0:
+                semantic_score = (dot_product / (norm1 * norm2)) * 100
+                semantic_score = max(0.0, semantic_score)
+
+            # 2. Keyword boost
+            keyword_boost = 0.0
+            if j_text:
+                keyword_boost = TitleMatcher.compute_keyword_boost(j_text, resume_title)
+            
+            combined_score = min(100.0, semantic_score + keyword_boost)
+            
+            all_matches.append({
+                "title": resume_title,
+                "semantic_score": semantic_score,
+                "keyword_boost": keyword_boost,
+                "final_score": combined_score
+            })
+            
+            if combined_score > best_score:
+                best_score = combined_score
+                best_title = resume_title
 
         return {
             "score": best_score,
@@ -341,87 +444,62 @@ def calculate_title_match_from_extraction(
         "matched_words": []  # Not applicable for semantic matching
     }
 
-def calculate_title_match_with_history(
+async def calculate_title_match_with_history_async(
     job_title: str,
     experience_list: list[Dict[str, Any]],
     candidate_profession: Optional[str] = None,
-    top_n: int = 3
+    top_n: int = 3,
+    job_embedding_vector: Optional[tuple] = None
 ) -> Dict[str, Any]:
     """
-    Calculate title match considering candidate's work history AND their primary profession.
-    
-    Args:
-        job_title: Target job title
-        experience_list: List of experience dicts with 'title' field
-        candidate_profession: The primary profession displayed in the frontend
-        top_n: Number of recent roles to consider
-        
-    Returns:
-        Dict with best_score, best_matching_title, best_source, and all_scores
+    Async version of calculate_title_match_with_history.
     """
     if not job_title:
-        return {
-            "best_score": 0.0,
-            "best_matching_title": None,
-            "best_source": None,
-            "all_scores": []
-        }
+        return {"best_score": 0.0, "best_matching_title": None, "best_source": None, "all_scores": []}
     
-    # 1. Collect all titles to check
+    # 1. Pre-calculate Job Embedding ONCE (Async) - OR USE PROVIDED
+    if job_embedding_vector is not None:
+        job_embedding = job_embedding_vector
+    else:
+        job_embedding = await TitleMatcher.get_embedding_from_ollama_async(TitleMatcher.normalize_title(job_title))
+    
     titles_to_check = []
-    
-    # A. Primary Profession (High Priority - matches Frontend)
     if candidate_profession and candidate_profession.strip():
-        titles_to_check.append({
-            "title": candidate_profession.strip(),
-            "source": "primary_profession"
-        })
+        titles_to_check.append({"title": candidate_profession.strip(), "source": "primary_profession"})
 
-    # B. Recent History
     if experience_list:
         for exp in experience_list[:top_n]:
-            if not isinstance(exp, dict):
-                continue
-            
-            t = exp.get("title")
-            if t and t.strip():
-                # Avoid duplicates if profession matches recent role
-                if not any(x["title"].lower() == t.strip().lower() for x in titles_to_check):
-                    titles_to_check.append({
-                        "title": t.strip(),
-                        "source": "history"
-                    })
+            if isinstance(exp, dict):
+                t = exp.get("title")
+                if t and t.strip():
+                    if not any(x["title"].lower() == t.strip().lower() for x in titles_to_check):
+                        titles_to_check.append({"title": t.strip(), "source": "history"})
     
     if not titles_to_check:
-        return {
-            "best_score": 0.0,
-            "best_matching_title": None,
-            "best_source": None,
-            "all_scores": []
-        }
+        return {"best_score": 0.0, "best_matching_title": None, "best_source": None, "all_scores": []}
     
-    # 2. Calculate scores
-    scores = []
-    
+    # 2. Process all comparisons concurrently
+    tasks = []
     for item in titles_to_check:
-        title_text = item["title"]
-        source = item["source"]
-        
-        # Use detailed match logic
-        res = TitleMatcher.compute_detailed_match(job_title, [title_text], None)
-        score_val = round(res["score"], 1)
-        
-        scores.append({
-            "title": title_text,
-            "score": score_val,
-            "source": source
-        })
-        
-        # Debug log
-        source_label = "⭐ (Primary)" if source == "primary_profession" else "(History)"
-        logger.debug(f"Checking title {source_label}: '{title_text}' = {score_val}%")
+        tasks.append(
+            TitleMatcher.compute_detailed_match_async(
+                job_title=job_embedding, # Pass the tuple
+                resume_titles=[item["title"]],
+                job_title_text=job_title
+            )
+        )
     
-    # 3. Find best match
+    # Run all title checks for this candidate in parallel
+    results = await asyncio.gather(*tasks)
+    
+    scores = []
+    for i, res in enumerate(results):
+        scores.append({
+            "title": titles_to_check[i]["title"],
+            "score": round(res["score"], 1),
+            "source": titles_to_check[i]["source"]
+        })
+    
     best = max(scores, key=lambda x: x["score"])
     
     return {

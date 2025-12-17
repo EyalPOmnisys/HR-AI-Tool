@@ -19,6 +19,7 @@ const mapApiToUi = (api: ApiJob): Job => ({
   icon: api.icon ?? '👥',
   postedAt: api.created_at,
   analysis: api.analysis_json,
+  additionalSkills: api.additional_skills ?? [],
 })
 
 export const JobBoard = (): ReactElement => {
@@ -118,7 +119,12 @@ export const JobBoard = (): ReactElement => {
     const intervalId = window.setInterval(async () => {
       try {
         const api = await getJob(jobId)
-        if (api.analysis_json) {
+        // Check if AI analysis is complete (not just additional_skills)
+        const hasAiAnalysis = api.analysis_json?.summary || 
+                              api.analysis_json?.organization || 
+                              (api.analysis_json?.skills?.must_have && api.analysis_json.skills.must_have.length > 0)
+        
+        if (hasAiAnalysis) {
           setJobs((prev) =>
             prev.map((j) => (j.id === jobId ? mapApiToUi(api) : j))
           )
@@ -148,9 +154,16 @@ export const JobBoard = (): ReactElement => {
           free_text: draft.freeText,
           icon: draft.icon,
           status: 'draft',
+          additional_skills: draft.additionalSkills,
         }
         const created = await createJob(payload)
+        // Create UI job and preserve additional_skills
         const ui = mapApiToUi(created)
+        // Keep the additional_skills but clear the rest of analysis to show skeleton
+        ui.analysis = created.additional_skills?.length 
+          ? { additional_skills: created.additional_skills } as any
+          : null
+        ui.additionalSkills = created.additional_skills ?? []
         setJobs((prev) => [ui, ...prev])
         startAnalysisPolling(ui.id)
       } else if (editingJobId) {
@@ -159,10 +172,16 @@ export const JobBoard = (): ReactElement => {
           job_description: draft.description,
           free_text: draft.freeText,
           icon: draft.icon,
+          additional_skills: draft.additionalSkills,
         }
         const updated = await updateJob(editingJobId, payload)
-        // Map to UI and force analysis to null to show skeleton while re-analyzing
-        const ui = { ...mapApiToUi(updated), analysis: null }
+        // Create UI job and preserve additional_skills
+        const ui = mapApiToUi(updated)
+        // Keep the additional_skills but clear the rest of analysis to show skeleton
+        ui.analysis = updated.additional_skills?.length 
+          ? { additional_skills: updated.additional_skills } as any
+          : null
+        ui.additionalSkills = updated.additional_skills ?? []
         setJobs((prev) => prev.map((job) => (job.id === editingJobId ? ui : job)))
         startAnalysisPolling(ui.id)
       }

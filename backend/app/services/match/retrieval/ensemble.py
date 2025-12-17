@@ -1,15 +1,16 @@
-"""Ensemble scorer combining RAG vector search, skills matching, experience scoring, and title matching into weighted final scores."""
+"""Ensemble scorer combining deterministic matchers (skills/experience/title/stability) into weighted final scores."""
 
 from __future__ import annotations
 import logging
+import asyncio
 from typing import List, Dict, Any
 from uuid import UUID
 from pathlib import Path
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Job, Resume
-from app.services.match.retrieval import rag_search, skills_matcher, experience_scorer, title_matcher, employment_stability_scorer
-from app.services.match.retrieval.rag_search import cosine_similarity
+from app.services.match.retrieval import skills_matcher, experience_scorer, title_matcher, employment_stability_scorer
 from app.services.match.retrieval.title_matcher import TitleMatcher
 from app.services.resumes.ingestion_pipeline import _extract_profession
 
@@ -37,11 +38,12 @@ async def search_and_score_candidates(
     Main ensemble scorer combining multiple algorithms.
     
     Pipeline:
-    1. RAG vector search - semantic similarity across ALL candidates in DB
+    1. Candidate selection - load resumes from DB (optionally excluding already-reviewed)
     2. Skills matching - deterministic weighted scoring
     3. Experience scoring - seniority and years match
     4. Title matching - role alignment
-    5. Weighted combination - produce final ranked list
+    5. Employment stability - tenure pattern scoring
+    6. Weighted combination - produce final ranked list
     
     Args:
         session: Database session
@@ -60,41 +62,22 @@ async def search_and_score_candidates(
         logger.info(f"Excluding {len(exclude_resume_ids)} already-reviewed candidates")
     logger.info("")
     
-    # ===== STAGE 1: RAG Vector Search (Semantic Filtering) =====
-    logger.info("Stage 1: RAG vector search - checking ALL candidates in DB...")
-    
-    job_embedding = await rag_search.get_job_embedding(session, job)
-    if job_embedding is None:
-        logger.error("No job embedding found - cannot perform matching")
-        return []
-    
-    # Get ALL candidates from vector search (no limit, no threshold)
-    rag_candidates = await rag_search.vector_search_candidates(
-        session=session,
-        job_embedding=job_embedding,
-        limit=None,
-        min_threshold=None,
-        job_id=job.id,
-        exclude_resume_ids=exclude_resume_ids
-    )
-    
-    logger.info(f"RAG search found {len(rag_candidates)} candidates (ALL resumes in DB)")
-    
-    if not rag_candidates:
-        logger.info("No candidates found in DB (no resumes with embeddings)")
+    # ===== STAGE 1: Candidate Selection (No RAG) =====
+    logger.info("Stage 1: Candidate selection (no RAG) - loading resumes from DB...")
+
+    stmt = select(Resume).where(Resume.extraction_json.isnot(None))
+    if exclude_resume_ids:
+        stmt = stmt.where(~Resume.id.in_(exclude_resume_ids))
+
+    # Load candidates to score (DB selection is the only filtering stage)
+    resumes: list[Resume] = (await session.execute(stmt)).scalars().all()
+    logger.info("Loaded %d resumes to score", len(resumes))
+    if not resumes:
+        logger.info("No candidates found in DB")
         return []
 
-    # ===== STAGE 1.5: Calculate Strong Chunk Coverage =====
-    # This is the "Strongest" comparison requested: checking specific requirement coverage
-    logger.info("Stage 1.5: Calculating detailed chunk coverage for candidates...")
-    resume_ids = [rc["resume_id"] for rc in rag_candidates]
-    
-    # Calculate coverage scores (0.0 to 1.0) for all candidates at once
-    coverage_scores = await rag_search.calculate_chunk_coverage(session, job.id, resume_ids)
-    logger.info(f"Calculated coverage scores for {len(coverage_scores)} candidates")
-    
     # ===== STAGE 2: Detailed Scoring for Each Candidate =====
-    logger.info(f"Stage 2: Detailed scoring for ALL {len(rag_candidates)} candidates...")
+    logger.info(f"Stage 2: Detailed scoring for ALL {len(resumes)} candidates...")
     logger.info("")
     
     # Extract job requirements
@@ -102,6 +85,7 @@ async def search_and_score_candidates(
     job_skills_data = job_analysis.get("skills", {})
     required_skills = job_skills_data.get("must_have", [])
     nice_to_have_skills = job_skills_data.get("nice_to_have", [])
+    additional_skills = job_skills_data.get("additional_skills", [])
     
     # Log job requirements once at the start
     logger.info("┌═════════════════════════════════════════════════════════════════┐")
@@ -113,6 +97,10 @@ async def search_and_score_candidates(
     for skill in required_skills:
         logger.info(f"│   ✓ {skill[:58]:<58} │")
     logger.info("├─────────────────────────────────────────────────────────────────┤")
+    logger.info(f"│ Additional Skills (Manual): {len(additional_skills)} skills                     │")
+    for skill in additional_skills:
+        logger.info(f"│   + {skill[:58]:<58} │")
+    logger.info("├─────────────────────────────────────────────────────────────────┤")
     logger.info(f"│ Nice to Have Skills: {len(nice_to_have_skills)} skills                          │")
     for skill in nice_to_have_skills:
         logger.info(f"│   ○ {skill[:58]:<58} │")
@@ -121,143 +109,49 @@ async def search_and_score_candidates(
     
     scored_candidates = []
     
-    for idx, rag_result in enumerate(rag_candidates):
-        resume_id = rag_result["resume_id"]
-        simple_similarity = rag_result["avg_similarity"]
-        
-        # Get the strong coverage score (default to simple similarity if missing)
-        coverage_score = coverage_scores.get(resume_id, 0.0)
-        
-        # Combined RAG Score: 70% Coverage (Strong) + 30% Global Similarity (Holistic)
-        # This ensures candidates who match specific requirements get higher scores
-        rag_similarity = (0.7 * coverage_score) + (0.3 * simple_similarity)
-        
+    verbose = logger.isEnabledFor(logging.DEBUG)
+
+    # Import once (was previously imported per-candidate)
+    from app.services.resumes.ingestion_pipeline import _extract_skills
+    import asyncio
+
+    # === OPTIMIZATION: Pre-calculate Job Title Embedding ONCE ===
+    # Instead of doing this N times inside the loop
+    job_title_embedding = await TitleMatcher.get_embedding_from_ollama_async(
+        TitleMatcher.normalize_title(job.title)
+    )
+
+    # Helper function for parallel processing
+    async def process_candidate_async(resume):
+        resume_id = resume.id
         try:
-            # Load resume
-            resume: Resume = await session.get(Resume, resume_id)
-            if not resume:
-                continue
-            
             extraction = resume.extraction_json or {}
             
             # === Calculate Skills Score ===
-            # Import the same extraction logic used in ingestion to ensure consistency
-            from app.services.resumes.ingestion_pipeline import _extract_skills
             candidate_skills = _extract_skills(extraction)
             
             # Log all candidate skills BEFORE matching
             person = extraction.get("person", {})
             name = person.get("name", "Unknown")
-            
-            logger.info("┌═════════════════════════════════════════════════════════════════┐")
-            logger.info(f"│ CANDIDATE: {name[:51]:<51} │")
-            logger.info("├═════════════════════════════════════════════════════════════════┤")
-            logger.info(f"│ All Candidate Skills ({len(candidate_skills)} total):                           │")
-            
-            # Group skills by weight (binary model: 1.0 = experience, 0.6 = general)
-            skills_from_work = []
-            skills_general = []
-            
-            for skill in candidate_skills:
-                if isinstance(skill, dict):
-                    skill_name = skill.get("name", "")
-                    skill_weight = skill.get("weight", 0.6)
-                    skill_source = skill.get("source", "unknown")
-                    skill_category = skill.get("category", "N/A")
-                    
-                    # Binary classification by weight (handles both 1.0 and legacy values like 0.5)
-                    if skill_weight >= 0.9:  # Consider anything >= 0.9 as experience (handles floating point)
-                        skills_from_work.append((skill_name, skill_category))
-                    else:
-                        skills_general.append((skill_name, skill_category, skill_source))
-            
-            if skills_from_work:
-                logger.info("│                                                                 │")
-                logger.info(f"│ 💼 EXPERIENCE SKILLS ({len(skills_from_work)} skills, weight=1.0):              │")
-                for skill_name, category in sorted(skills_from_work):
-                    cat_display = (category or "N/A")[:10]
-                    logger.info(f"│   • {skill_name[:45]:<45} [{cat_display:<10}] │")
-            
-            if skills_general:
-                logger.info("│                                                                 │")
-                logger.info(f"│ 📋 GENERAL SKILLS ({len(skills_general)} skills, weight=0.6):                   │")
-                for skill_name, category, source in sorted(skills_general):
-                    cat_display = (category or "N/A")[:10]
-                    source_display = (source or "unknown")[:15]
-                    logger.info(f"│   • {skill_name[:35]:<35} [{cat_display:<10}] ({source_display}) │")
-            
-            logger.info("└═════════════════════════════════════════════════════════════════┘")
-            logger.info("")
+
+            if verbose:
+                logger.debug("Candidate resume_id=%s name=%s", resume_id, name)
             
             skills_result = skills_matcher.calculate_skills_match(
                 candidate_skills=candidate_skills,
                 required_skills=required_skills,
-                nice_to_have_skills=nice_to_have_skills
+                nice_to_have_skills=nice_to_have_skills,
+                additional_skills=additional_skills,
+                candidate_text=resume.parsed_text
             )
             
-            # === Log Skills Matching Results ===
-            logger.info("┌─────────────────────────────────────────────────────────────────┐")
-            logger.info("│                    SKILLS MATCHING RESULTS                      │")
-            logger.info("├─────────────────────────────────────────────────────────────────┤")
-            
-            # Matched Required Skills
-            logger.info(f"│ ✅ Matched Required ({len(skills_result.matched_required)}/{len(required_skills)}):                         │")
-            for matched in skills_result.matched_required:
-                skill_name = matched.get("name", "")
-                weight = matched.get("weight", 0.6)
-                # Display emoji based on weight (binary model)
-                source_emoji = "💼" if weight == 1.0 else "📋"
-                source_label = "EXP" if weight == 1.0 else "GEN"
-                logger.info(f"│   {source_emoji} {skill_name[:35]:<35} [{source_label}|w={weight:.1f}] │")
-            
-            if not skills_result.matched_required:
-                logger.info("│   (none)                                                        │")
-            
-            # Missing Required Skills
-            logger.info("├─────────────────────────────────────────────────────────────────┤")
-            logger.info(f"│ ❌ Missing Required ({len(skills_result.missing_required)}):                              │")
-            for missing in skills_result.missing_required:
-                logger.info(f"│   ✗ {missing[:58]:<58} │")
-            
-            if not skills_result.missing_required:
-                logger.info("│   (none - perfect match!)                                      │")
-            
-            # Matched Nice-to-Have Skills
-            if nice_to_have_skills:
-                logger.info("├─────────────────────────────────────────────────────────────────┤")
-                logger.info(f"│ ⭐ Matched Nice-to-Have ({len(skills_result.matched_nice_to_have)}/{len(nice_to_have_skills)}):              │")
-                for matched in skills_result.matched_nice_to_have:
-                    skill_name = matched.get("name", "")
-                    weight = matched.get("weight", 0.6)
-                    # Display emoji based on weight (binary model)
-                    source_emoji = "💼" if weight == 1.0 else "📋"
-                    source_label = "EXP" if weight == 1.0 else "GEN"
-                    logger.info(f"│   {source_emoji} {skill_name[:35]:<35} [{source_label}|w={weight:.1f}] │")
-                
-                if not skills_result.matched_nice_to_have:
-                    logger.info("│   (none)                                                        │")
-            
-            # Skills Score Summary
-            logger.info("├─────────────────────────────────────────────────────────────────┤")
-            logger.info("│                    SKILLS SCORE BREAKDOWN                       │")
-            logger.info("├─────────────────────────────────────────────────────────────────┤")
-            
-            # Count matched skills by weight (binary model)
-            exp_count = sum(1 for m in skills_result.matched_required if m.get("weight") == 1.0)
-            gen_count = len(skills_result.matched_required) - exp_count
-            
-            exp_points = exp_count * 1.0
-            gen_points = gen_count * 0.6
-            total_points = exp_points + gen_points
-            max_points = len(required_skills) * 1.0
-            
-            logger.info(f"│ 💼 Experience Skills: {exp_count} × 1.0 = {exp_points:.1f} pts              │")
-            logger.info(f"│ 📋 General Skills:    {gen_count} × 0.6 = {gen_points:.1f} pts              │")
-            logger.info(f"│ ────────────────────────────────────────────────────────────    │")
-            logger.info(f"│ Weighted Score: {total_points:.1f}/{max_points:.1f} = {skills_result.weighted_score:.1f}%    │")
-            
-            logger.info("└─────────────────────────────────────────────────────────────────┘")
-            logger.info("")
+            if verbose:
+                logger.debug(
+                    "Skills matched_required=%d missing_required=%d weighted_score=%.1f", 
+                    len(skills_result.matched_required),
+                    len(skills_result.missing_required),
+                    skills_result.weighted_score,
+                )
             
             # === Calculate Experience Score ===
             exp_result = experience_scorer.calculate_experience_match_detailed(
@@ -273,11 +167,25 @@ async def search_and_score_candidates(
             )
             stability_score = stability_result["score"]
             
-            # === Calculate Title Match Score (Semantic Similarity) ===
-            # Extract resume titles from work history
-            experiences = extraction.get("experience", [])
+            # === OPTIMIZATION 2: THE FUNNEL (Fast Fail) ===
+            # Calculate partial score of "cheap" components
+            # Skills (45%) + Experience (20%) + Stability (5%) = 70% of total weight
+            partial_score = (
+                0.45 * (skills_result.weighted_score / 100) +
+                0.20 * exp_score +
+                0.05 * stability_score
+            )
             
-            # Extract titles for display
+            # If partial score is very low (e.g. < 0.15), skip expensive Title Match
+            # This means candidate has poor skills AND poor experience match
+            SKIP_THRESHOLD = 0.15
+            
+            title_score = 0.0
+            best_resume_title = ""
+            match_source = None
+            
+            # Extract resume titles from work history (needed for display anyway)
+            experiences = extraction.get("experience", [])
             resume_titles = []
             if experiences and isinstance(experiences, list):
                 for exp in experiences:
@@ -290,22 +198,34 @@ async def search_and_score_candidates(
             person = extraction.get("person", {})
             
             # 1. Get the "Frontend Profession" (what the user sees on the card)
+            from app.services.resumes.ingestion_pipeline import _extract_profession
             primary_profession = _extract_profession(experiences, education, person)
-            
-            # 2. Calculate match using the helper that prioritizes profession
-            title_match_result = title_matcher.calculate_title_match_with_history(
-                job_title=job.title,
-                experience_list=experiences,
-                candidate_profession=primary_profession,
-                top_n=3
-            )
-            
-            title_score_100 = title_match_result["best_score"]
-            title_score = title_score_100 / 100.0  # Convert to 0-1 scale
-            
-            # Best matching title for logging
-            best_resume_title = title_match_result["best_matching_title"]
-            match_source = title_match_result.get("best_source")
+
+            if partial_score >= SKIP_THRESHOLD:
+                # === Calculate Title Match Score (EXPENSIVE) ===
+                # Only run if candidate passed the initial filter
+                
+                # 2. Calculate match using the helper that prioritizes profession
+                # NOW ASYNC!
+                # CHANGED: We pass experience_list=[] to FORCE the matcher to ignore history.
+                # It will only compare job.title vs primary_profession.
+                title_match_result = await title_matcher.calculate_title_match_with_history_async(
+                    job_title=job.title,
+                    experience_list=[], # <--- EMPTY LIST: Ignore history completely
+                    candidate_profession=primary_profession,
+                    top_n=1,
+                    job_embedding_vector=job_title_embedding # <--- PASS PRE-CALCULATED EMBEDDING
+                )
+                
+                title_score_100 = title_match_result["best_score"]
+                title_score = title_score_100 / 100.0  # Convert to 0-1 scale
+                best_resume_title = title_match_result["best_matching_title"]
+                match_source = title_match_result.get("best_source")
+            else:
+                # Fallback for skipped candidates
+                best_resume_title = "Skipped (Low Match)"
+                if verbose:
+                    logger.debug(f"Skipping Title Match for {resume_id} (Partial Score: {partial_score:.2f})")
             
             # Add visual indicator if the matched title is the primary profession
             is_primary = match_source == "primary_profession"
@@ -317,30 +237,27 @@ async def search_and_score_candidates(
                 best_resume_title = "No title"
                 title_display = "No title"
             
-            # === Log Individual Scores ===
-            logger.info("┌─────────────────────────────────────────────────────────────────┐")
-            logger.info(f"│                    SCORING SUMMARY                              │")
-            logger.info("├─────────────────────────────────────────────────────────────────┤")
-            logger.info(f"│ 🎯 Skills:      {skills_result.weighted_score:>6.1f}% │ Required: {skills_result.required_match_rate:>3.0f}% │")
-            logger.info(f"│ 💼 Experience:  {exp_score * 100:>6.1f}% │ {exp_result.get('verdict', 'N/A')[:22]:<22} │")
-            logger.info(f"│ 🔍 RAG:         {rag_similarity * 100:>6.1f}% │ Cov:{coverage_score*100:.0f}% Sim:{simple_similarity*100:.0f}% │")
-            logger.info(f"│ 👔 Title:       {title_score * 100:>6.1f}% │ '{title_display[:20]}'")
-            logger.info(f"│ 🏢 Stability:   {stability_score * 100:>6.1f}% │ {stability_result.get('verdict', 'N/A')[:22]:<22} │")
-            logger.info("└─────────────────────────────────────────────────────────────────┘")
+            if verbose:
+                logger.debug(
+                    "Score components skills=%.1f title=%.1f exp=%.1f stability=%.1f",
+                    skills_result.weighted_score,
+                    title_score * 100,
+                    exp_score * 100,
+                    stability_score * 100,
+                )
             
             # === Ensemble Weighted Score ===
             # Weights (tunable):
-            # - Skills: 40% (Technical match)
-            # - Title: 25% (Role alignment)
+            # - Skills: 45% (Technical match) - Increased from 40%
+            # - Title: 30% (Role alignment) - Increased from 25%
             # - Experience: 20% (Seniority)
-            # - RAG: 10% (Semantic Requirement Coverage)
             # - Stability: 5% (Employment stability)
+            # - RAG: Removed (was 10%)
             
             final_score = (
-                0.40 * (skills_result.weighted_score / 100) +
-                0.25 * title_score +
+                0.45 * (skills_result.weighted_score / 100) +
+                0.30 * title_score +
                 0.20 * exp_score +
-                0.10 * rag_similarity +
                 0.05 * stability_score
             )
             
@@ -358,7 +275,7 @@ async def search_and_score_candidates(
                 logger.info(f"│    Penalty: -{penalty_amount * 100:.1f}% → New score: {final_score * 100:.1f}%            │")
                 logger.info("└─────────────────────────────────────────────────────────────────┘")
             
-            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (40%×Skills + 25%×Title + 20%×Exp + 10%×RAG + 5%×Stability) │")
+            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (45%×Skills + 30%×Title + 20%×Exp + 5%×Stability) │")
             logger.info("")
             
             # Convert to 0-100 scale
@@ -409,12 +326,11 @@ async def search_and_score_candidates(
             # === Build Candidate Dict ===
             candidate_dict = {
                 "resume_id": resume_id,
-                "rag_score": final_score_int,  # Final ensemble score
+                "rag_score": final_score_int,  # Final ensemble score (legacy field name)
                 "similarity": final_score,  # 0-1 scale for compatibility
                 "breakdown": {
                     "skills": int(skills_result.weighted_score),
                     "experience": int(exp_score * 100),
-                    "rag_similarity": int(rag_similarity * 100),
                     "title": int(title_score * 100),
                     "stability": int(stability_score * 100)
                 },
@@ -457,15 +373,21 @@ async def search_and_score_candidates(
                 }
             }
             
-            scored_candidates.append(candidate_dict)
-            
-            # Log progress every 10 candidates
-            if (idx + 1) % 10 == 0:
-                logger.info(f"Processed {idx + 1}/{len(rag_candidates)} candidates...")
+            return candidate_dict
         
         except Exception as e:
             logger.error(f"Error scoring resume {resume_id}: {e}", exc_info=True)
-            continue
+            return None
+
+    # Create tasks for all candidates
+    tasks = [process_candidate_async(resume) for resume in resumes]
+    
+    # Run all tasks concurrently
+    logger.info(f"Processing {len(tasks)} candidates in parallel...")
+    results = await asyncio.gather(*tasks)
+    
+    # Filter out failures
+    scored_candidates = [r for r in results if r is not None]
     
     # ===== STAGE 3: Sort and Return Top N =====
     scored_candidates.sort(key=lambda x: x["rag_score"], reverse=True)
@@ -485,7 +407,7 @@ async def search_and_score_candidates(
             logger.info(
                 f"  {i}. Score={c['rag_score']} "
                 f"(Skills:{b['skills']}% Exp:{b['experience']}% "
-                f"RAG:{b['rag_similarity']}% Title:{b['title']}% Stability:{b['stability']}%)"
+                f"Title:{b['title']}% Stability:{b['stability']}%)"
             )
     
     logger.info("=" * 80)

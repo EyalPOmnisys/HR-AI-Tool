@@ -323,6 +323,14 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
     });
   };
 
+  // Determine experience column label
+  const experienceLabel = useMemo(() => {
+    if (selectedJob?.analysis_json?.is_tech_role === false) {
+      return "📅 Other Exp";
+    }
+    return "📅 Tech Exp";
+  }, [selectedJob]);
+
   return (
     <section className={styles.resultsSection}>
       {/* Job Title Header */}
@@ -664,7 +672,7 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                 <th>🎯 Match</th>
                 <th>👤 Candidate</th>
                 <th>💼 Title</th>
-                <th>📅 Experience</th>
+                <th>{experienceLabel}</th>
                 <th>🏢 Stability</th>
                 <th>📊 Status</th>
                 <th>📞 Phone</th>

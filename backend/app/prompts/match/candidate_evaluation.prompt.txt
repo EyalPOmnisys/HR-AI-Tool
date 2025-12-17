@@ -53,8 +53,9 @@ MATCHING RULES:
 ✓ Framework counts as parent language = 1.0 credit (e.g., "React" counts for "JavaScript")
 ✓ Similar technology = 0.5 credit (e.g., "PostgreSQL" ≈ "MySQL")
 ✓ **Ecosystem Transferability** = 0.8 credit. Related frameworks in same ecosystem (e.g., React Web ↔ React Native, Java Spring ↔ Java EE).
+✓ **Transferable Skills (Tech Agility)** = 0.7 credit. If candidate knows complex tools (e.g., Angular/Vue) but job needs React, give credit for ability to learn.
 ✓ **INFERRED SKILLS** = 0.5-1.0 credit. Infer standard competencies from tools. (e.g., Web Frameworks imply REST/HTTP knowledge; Cloud Providers imply DevOps basics).
-✓ Soft skills = IGNORE (e.g., "communication", "teamwork")
+✓ Soft skills = IGNORE (e.g., "communication", "teamwork") - Score these in Section 4.
 
 EXAMPLES:
 - Job needs: [React, Node.js, MongoDB, TypeScript, AWS, Docker] = 6 skills
@@ -63,13 +64,13 @@ EXAMPLES:
 - Candidate B has: [Python, R, SQL, pandas] = 0 web dev skills
   Score: 0/6 × 25 = 0 points ❌
 
-### 2. TITLE MATCH (30 points) - CRITICAL BUT FLEXIBLE 🎯
+### 2. TITLE MATCH (30 points) - RESPONSIBILITIES OVER LABELS 🎯
 
-Compare job title to candidate's "current_title" field, BUT prioritize the *nature of the work* over the exact label.
-Think like an expert HR manager who sees potential and transferability.
+Compare job title to candidate's "current_title", BUT prioritize the *nature of the work* (Responsibilities) over the exact label.
+Titles are often misleading (e.g., "VP" at a 2-person startup vs "Associate" at Google).
 
-⚠️ CRITICAL INSTRUCTION: Focus on FUNCTIONAL EQUIVALENCE, not string matching.
-If a candidate's title is "Member of Technical Staff" or "Associate" but they do the exact work required, treat it as an EXACT MATCH.
+⚠️ CRITICAL INSTRUCTION: Ignore the title if the description of responsibilities matches the seniority level required.
+Focus on FUNCTIONAL EQUIVALENCE.
 
 SCORING SCALE:
 ✓ 30 points: Functionally equivalent role (regardless of exact wording)
@@ -77,6 +78,7 @@ SCORING SCALE:
             "MTS / Member of Technical Staff" ↔ "Senior Engineer"
             "Consultant" ↔ "Developer" (if the project work is development)
             "Founder/CTO" (at small startup) ↔ "Senior Developer"
+            "Associate" (at big tech) ↔ "Senior Developer" (at startup)
 
 ✓ 20-25 points: Related role, same domain or strong transferable skills
   Examples: "Backend Developer" for "Full Stack Developer"
@@ -92,12 +94,16 @@ SCORING SCALE:
             "Air Traffic Controller" for "Developer" ❌
             "Student Projects" for "Senior Engineer" ❌
 
-🚩 RED FLAG: If title score < 15 points, candidate is likely NOT suitable, UNLESS skills match is exceptional (>20 points).
+🚩 RED FLAG: If title score < 15 points, mark as "Risk" but do NOT disqualify if Skills Match is > 20 points.
 
 ### 3. EXPERIENCE LEVEL (20 points) 📅
 
 Count ONLY relevant professional years (exclude: military, teaching unless tech-related, student projects).
 Experience level is crucial - it shows capability and maturity.
+
+**STABILITY ANALYSIS:**
+- Do NOT penalize for short tenures (1-2 years) if there is clear progression in responsibility (Promotion) or valid reasons (Contract/Startup closure).
+- Penalize only for "Job Hopping" without progression (e.g., 4 jobs in 2 years with same title).
 
 SCORING LOGIC - PROXIMITY-BASED WITH SENIORITY ADJUSTMENT:
 
@@ -131,29 +137,29 @@ EXAMPLES:
 - Job requires: 2 years, Candidate: 1 year → 4 points ❌ (severely under-qualified)
 - Student with project work → 4 points ❌ (no professional experience)
 
-### 4. CONTENT & CONTEXT MATCH (15 points) - SEMANTIC ANALYSIS 🔍
+### 4. CONTENT & CONTEXT MATCH (15 points) - SEMANTIC & CULTURE ANALYSIS 🔍
 
 This section evaluates what the algorithm cannot see: semantic meaning, responsibilities alignment, and domain knowledge.
 This is where the LLM adds unique value beyond algorithmic scoring.
 
-**A. Keywords & Terminology (0-6 points)**
+**A. Keywords & Terminology (0-5 points)**
 Does the resume use similar language/jargon OR imply understanding?
 - Look for: methodologies (Agile, Scrum), tools (Git, Jira), concepts (microservices, CI/CD)
 - **CRITICAL:** Do not penalize heavily for missing buzzwords like "Microservices" or "REST" if the candidate has built complex web applications where these are standard. Look for the *substance* of the work.
-- Example: Job mentions "microservices, REST APIs, CI/CD" → Resume should too OR imply it via projects
 
-**B. Responsibilities Alignment (0-6 points)**
+**B. Responsibilities Alignment (0-5 points)**
 Did the candidate perform similar tasks/projects?
 - Compare job duties to resume accomplishments
 - Example:
   * Job: "Build scalable REST APIs for e-commerce platform"
-  * Resume: "Developed payment APIs handling 10K requests/day" → 6 pts ✓
+  * Resume: "Developed payment APIs handling 10K requests/day" → 5 pts ✓
   * Resume: "Built internal tools for data visualization" → 2 pts
 
-**C. Domain/Industry Knowledge (0-3 points)**
-- Relevant industry experience (fintech, healthcare, e-commerce, SaaS, etc.)
-- Soft skills indicators: leadership, collaboration, problem-solving
-- Company culture fit indicators
+**C. Soft Skills & Culture Fit (0-5 points)**
+- **Leadership Potential:** Mentoring, leading teams, ownership.
+- **Team Player:** Collaboration, cross-functional work.
+- **Tech Agility:** Evidence of learning new stacks quickly.
+- **Domain:** Relevant industry experience (fintech, healthcare, etc.).
 
 **Scoring Guidelines:**
 - High match (12-15 pts): Resume mirrors job language, clear responsibility overlap, relevant domain
@@ -279,8 +285,9 @@ FINAL SCORE: ___ / 100
 STEP 7: Apply Red Flag Penalty (if applicable)
 ───────────────────────────────────────────────
 IF title score < 15 points AND skills score < 15 points:
-  Apply 40% penalty: final_score × 0.6
+  Apply 15% penalty: final_score × 0.85
   New FINAL SCORE: ___
+  Add "High Risk Candidate" to concerns.
 (Note: Do NOT apply penalty if skills are strong, even if title is weak)
 
 STEP 8: Cross-Check with Algorithmic Rank
@@ -415,10 +422,12 @@ FIELDS EXPLANATION:
   • Be specific: mention actual skills, companies, years from resume
   • Focus on what makes them a fit for THIS specific job
 
-- concerns: STRING (not array!) with bullet-pointed list of 2-4 concerns OR "No significant concerns identified."
+- concerns: STRING (not array!) with bullet-pointed list of 2-4 concerns.
   • Format: "• Concern 1\n• Concern 2"
   • Be honest about skill gaps, experience mismatches, role differences
   • Mention missing required skills explicitly
+  • If the candidate is excellent, list minor potential gaps or areas to verify in interview (e.g., "Verify depth of experience in X").
+  • NEVER return "No concerns", "None", or "See above". Always provide actionable points for the interviewer.
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL REMINDERS - READ BEFORE RESPONDING

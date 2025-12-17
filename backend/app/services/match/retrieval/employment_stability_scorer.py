@@ -39,10 +39,15 @@ def _calculate_duration_from_dates(start_date: Optional[str], end_date: Optional
         
         # Parse start date - try different formats
         start = None
+        start_is_year_only = False
         
         # Try: Just year "2023"
         if len(start_date) == 4 and start_date.isdigit():
+            # CHANGE: Assume mid-year (July 1st) for start year to be conservative, 
+            # unless it's the only info we have, but let's stick to Jan 1 for start to not punish too hard,
+            # BUT we will fix the end date logic.
             start = datetime(int(start_date), 1, 1)
+            start_is_year_only = True
         # Try: "2023-01" (year-month with dash)
         elif len(start_date) == 7 and "-" in start_date:
             start = datetime.strptime(start_date, "%Y-%m")
@@ -70,7 +75,17 @@ def _calculate_duration_from_dates(start_date: Optional[str], end_date: Optional
             end = datetime.now()
         # Try: Just year "2024"
         elif len(end_date) == 4 and end_date.isdigit():
-            end = datetime(int(end_date), 12, 31)
+            # CHANGE: If start was year-only and end is year-only, calculate simple difference.
+            # Old logic used Dec 31, which made 2023-2024 = 2 years.
+            # New logic: Use Jan 1 for end year too, so 2023-2024 = 1 year.
+            if start_is_year_only:
+                 end = datetime(int(end_date), 1, 1)
+                 # Ensure at least 1 year if same year provided (2023-2023)
+                 if end.year == start.year:
+                     return 0.5
+            else:
+                # If start had month but end is just year, assume mid-year end
+                end = datetime(int(end_date), 6, 30)
         # Try: "2024-11" (year-month with dash)
         elif len(end_date) == 7 and "-" in end_date:
             end = datetime.strptime(end_date, "%Y-%m")
@@ -158,21 +173,34 @@ def calculate_employment_stability(
     total_experience = float(total_experience) if total_experience else 0.0
     
     # Determine expected tenure based on seniority
-    # Junior (0-3 years): Expected tenure = 1.5 years
-    # Mid (3-6 years): Expected tenure = 2 years
-    # Senior (6+ years): Expected tenure = 3 years
+    # Junior (0-3 years): Expected tenure = 2.0 years
+    # Mid (3-6 years): Expected tenure = 3.0 years
+    # Senior (6+ years): Expected tenure = 4.0 years
     if total_experience < 3:
-        expected_tenure = 1.5
+        expected_tenure = 2.0
         seniority_level = "junior"
     elif total_experience < 6:
-        expected_tenure = 2.0
+        expected_tenure = 3.0
         seniority_level = "mid"
     else:
-        expected_tenure = 3.0
+        expected_tenure = 4.0
         seniority_level = "senior"
     
     # Filter tech jobs (have tech stack)
     tech_jobs = []
+    
+    # Build a set of identifiers for jobs classified as 'tech' in clusters
+    tech_cluster_ids = set()
+    clusters = exp_meta.get("experience_clusters", [])
+    for cluster in clusters:
+        if cluster.get("category") == "tech":
+            for member in cluster.get("members", []):
+                # Create a unique key based on title and start date
+                t = str(member.get("title", "")).lower().strip()
+                s = str(member.get("start_date", "")).strip()
+                if t:
+                    tech_cluster_ids.add(f"{t}|{s}")
+
     for exp in experience_list:
         if isinstance(exp, dict):
             tech = exp.get("tech", [])
@@ -185,8 +213,22 @@ def calculate_employment_stability(
                     exp.get("end_date")
                 )
             
-            # Consider it a tech job if it has tech stack
-            if tech and len(tech) > 0 and duration is not None:
+            # Determine if this is a tech job
+            is_tech_job = False
+            
+            # Criteria 1: Has tech stack tags
+            if tech and len(tech) > 0:
+                is_tech_job = True
+            
+            # Criteria 2: Is in a tech cluster (matches by title/start_date)
+            if not is_tech_job and tech_cluster_ids:
+                t = str(exp.get("title", "")).lower().strip()
+                s = str(exp.get("start_date", "")).strip()
+                if f"{t}|{s}" in tech_cluster_ids:
+                    is_tech_job = True
+            
+            # Consider it a tech job if it meets criteria and has duration
+            if is_tech_job and duration is not None:
                 tech_jobs.append({
                     "company": exp.get("company", "Unknown"),
                     "title": exp.get("title", "Unknown"),
@@ -231,9 +273,12 @@ def calculate_employment_stability(
     durations = [job["duration"] for job in tech_jobs]
     average_tenure = sum(durations) / len(durations) if durations else 0.0
     
-    # Count short stints (< 1 year) and long tenures (4+ years)
-    short_stints = sum(1 for d in durations if d < 1.0)
+    # Count short stints (< 1.5 years) and long tenures (4+ years)
+    short_stints = sum(1 for d in durations if d < 1.5)
     long_tenures = sum(1 for d in durations if d >= 4.0)
+    
+    # Count medium stints (1.5 - 2.5 years) - frequent movers
+    medium_stints = sum(1 for d in durations if 1.5 <= d < 2.5)
     
     # Count very short stints (< 6 months) - more severe
     very_short_stints = sum(1 for d in durations if d < 0.5)
@@ -251,18 +296,36 @@ def calculate_employment_stability(
         base_score -= 0.25
         concerns.append(f"Job hopping: {total_jobs} jobs in ~{total_experience:.1f} years")
     
-    # 2. Short Stints Penalty
+    # CHANGE: Added penalty for "Early Career Instability" (2 jobs in < 2.5 years where both are short)
+    # This catches the case of the user (2 jobs, ~1 year each)
+    elif total_experience <= 2.5 and total_jobs == 2 and average_tenure < 1.3:
+        base_score -= 0.20
+        concerns.append(f"Early career instability: {total_jobs} short roles in ~{total_experience:.1f} years")
+
+    # New: Serial Short Stints for Mid/Senior levels
+    # If not junior, and average tenure is low (< 1.8y), penalize significantly
+    if seniority_level != "junior" and average_tenure < 1.8:
+        base_score -= 0.15
+        concerns.append(f"Average tenure ({average_tenure:.1f}y) indicates frequent job changes for {seniority_level} level")
+
+    # 2. Short Stints Penalty (< 1.5 years)
     if short_stints > 0:
         # More severe for multiple short stints
         if short_stints >= 3:
-            base_score -= 0.20
-            concerns.append(f"Multiple short stints: {short_stints} jobs < 1 year")
+            base_score -= 0.25
+            concerns.append(f"Multiple short stints: {short_stints} jobs < 1.5 years")
         elif short_stints == 2:
-            base_score -= 0.15
-            concerns.append(f"{short_stints} jobs lasted less than 1 year")
+            # CHANGE: Increased penalty for 2 short stints from 0.15 to 0.20
+            base_score -= 0.20
+            concerns.append(f"{short_stints} jobs lasted less than 1.5 years")
         else:
             base_score -= 0.10
-            concerns.append("1 job lasted less than 1 year")
+            concerns.append("1 job lasted less than 1.5 years")
+            
+    # New: Medium Stints Penalty (Frequent changes every ~2 years)
+    if medium_stints >= 2:
+        base_score -= 0.10
+        concerns.append(f"Pattern of changing jobs every ~2 years ({medium_stints} jobs)")
     
     # 3. Very Short Stints (< 6 months) - Additional Penalty
     if very_short_stints > 0:
@@ -272,24 +335,24 @@ def calculate_employment_stability(
     # 4. Average Tenure Below Expected
     if average_tenure < expected_tenure:
         ratio = average_tenure / expected_tenure
-        if ratio < 0.5:
+        if ratio <= 0.5:
             # Significantly below expectations
-            base_score -= 0.20
+            base_score -= 0.25
             concerns.append(
                 f"Average tenure ({average_tenure:.1f}y) much lower than expected "
                 f"for {seniority_level} level ({expected_tenure:.1f}y)"
             )
-        elif ratio < 0.75:
-            base_score -= 0.10
+        elif ratio <= 0.7:
+            base_score -= 0.15
             concerns.append(
                 f"Average tenure ({average_tenure:.1f}y) below expected "
                 f"for {seniority_level} level ({expected_tenure:.1f}y)"
             )
     
     # 5. Frequency of Job Changes (if many jobs in short time)
-    if total_jobs >= 4 and total_experience > 0:
+    if total_jobs >= 3 and total_experience > 0:
         avg_time_per_job = total_experience / total_jobs
-        if avg_time_per_job < 1.5:
+        if avg_time_per_job < 2.0:
             base_score -= 0.15
             concerns.append(
                 f"High job change frequency: {total_jobs} jobs in {total_experience:.1f} years "

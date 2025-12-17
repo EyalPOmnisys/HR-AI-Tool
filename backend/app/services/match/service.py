@@ -1,4 +1,4 @@
-"""Main matching service orchestrating ensemble retrieval (RAG + skills + experience) and LLM evaluation for job-to-resume matching."""
+"""Main matching service orchestrating ensemble retrieval (skills/title/experience/stability) and LLM evaluation for job-to-resume matching."""
 
 from __future__ import annotations
 import logging
@@ -30,8 +30,8 @@ class MatchService:
         
         Flow:
         1. Check existing candidates: Get candidates already in JobCandidate table
-        2. Identify "Stage 1 Complete": Candidates with 'rag_score' are skipped in Stage 1
-        3. RAG + Algorithms: Score ONLY NEW candidates (or those missing rag_score)
+        2. Identify "Stage 1 Complete": Candidates with 'rag_score' are skipped (delta runs)
+        3. Ensemble scoring: Score ONLY NEW candidates (or those missing rag_score)
         4. Persist Stage 1 Scores: Save rag_score for new candidates immediately
         5. Combine & Sort: Merge new + existing candidates, sort by rag_score
         6. Select Top N: Pick the best candidates
@@ -78,14 +78,14 @@ class MatchService:
         }
         
         logger.info(f"Found {len(existing_candidates)} total candidates in DB")
-        logger.info(f"Found {len(stage1_complete_ids)} candidates with Stage 1 (RAG) score already calculated")
+        logger.info(f"Found {len(stage1_complete_ids)} candidates with Stage 1 score already calculated")
         logger.info("")
         
-        # STEP 1: Ensemble Retrieval (RAG + Skills + Experience) - ONLY NEW/UNSCORED CANDIDATES
+        # STEP 1: Ensemble Retrieval (No RAG) - ONLY NEW/UNSCORED CANDIDATES
         logger.info("STEP 1: Ensemble Retrieval & Scoring (Delta run)")
         logger.info("-" * 80)
         
-        # We ask for a large limit to get ALL potential new candidates, 
+        # We ask for a large limit to get all potential new candidates,
         # so we can save their scores and not run them again next time.
         new_scored_candidates = await search_and_score_candidates(
             session=session,
@@ -145,7 +145,12 @@ class MatchService:
             analysis = jc.analysis_json or {}
             
             # Re-extract basic info
-            name = person.get("name", "Unknown")
+            name = person.get("name")
+            
+            # FILTER: If no name was extracted, consider this a failed parsing
+            # and do not show it in the candidate list.
+            if not name or name.strip().lower() == "unknown":
+                return None
             
             # Extract emails/phones
             emails = person.get("emails", [])
@@ -154,10 +159,19 @@ class MatchService:
             phones = person.get("phones", [])
             phone = phones[0].get("value") if phones and isinstance(phones, list) and len(phones) > 0 and isinstance(phones[0], dict) else None
             
-            # Experience years
+            # Experience years - DYNAMIC SELECTION
             exp_meta = extraction.get("experience_meta", {})
             rec_primary = exp_meta.get("recommended_primary_years", {})
-            experience_years = rec_primary.get("tech")
+            
+            # Check job type
+            is_tech_role = job.analysis_json.get("is_tech_role", True) if job.analysis_json else True
+            
+            if is_tech_role:
+                experience_years = rec_primary.get("tech", 0)
+            else:
+                # For non-tech roles, use ONLY other experience
+                # This is critical: if looking for HR, we care about "other" (0.9), not "tech" (10.5)
+                experience_years = rec_primary.get("other", 0)
             
             # Title
             experiences = extraction.get("experience", [])
@@ -299,15 +313,29 @@ class MatchService:
             stability_score = stability_detail.get("score", 0.5) if stability_detail else 0.5
             stability_verdict = stability_detail.get("verdict", "unknown") if stability_detail else "unknown"
             
+            # CHANGE: Determine Final Score based ONLY on LLM if available
+            llm_score = candidate.get("llm_score")
+            rag_score = candidate.get("rag_score")
+            
+            if llm_score is not None:
+                # If LLM score exists, it IS the match score. 100% weight.
+                final_score = int(llm_score)
+            else:
+                # Fallback to RAG score only if LLM hasn't run
+                final_score = int(rag_score) if rag_score is not None else 0
+
+            # Update the candidate dict for the response
+            candidate["final_score"] = final_score
+
             # Update DB with Final Scores (LLM + Match)
             job_candidate = existing_candidates_map.get(resume_id)
             # (Should exist by now)
             
             if job_candidate:
                 # Update scores
-                job_candidate.match_score = int(candidate["final_score"])
+                job_candidate.match_score = final_score
                 # rag_score is already set
-                job_candidate.llm_score = int(candidate.get("llm_score", 0)) if candidate.get("llm_score") is not None else None
+                job_candidate.llm_score = int(llm_score) if llm_score is not None else None
                 
                 # Update Analysis JSON with LLM results
                 current_analysis = dict(job_candidate.analysis_json) if job_candidate.analysis_json else {}
@@ -319,7 +347,7 @@ class MatchService:
 
             response_candidates.append({
                 "resume_id": resume_id,
-                "match": candidate["final_score"],
+                "match": final_score,
                 "candidate": contact.get("name"),
                 "title": contact.get("title"),
                 "experience": _format_experience(contact.get("experience_years")),
@@ -327,7 +355,8 @@ class MatchService:
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
                 "file_name": contact.get("file_name"),
-                "rag_score": candidate["rag_score"],
+                "rag_score": int(rag_score) if rag_score is not None else 0,
+                "llm_score": int(llm_score) if llm_score is not None else None,
                 "rag_breakdown": candidate.get("breakdown", {}),
                 "llm_strengths": _ensure_string(llm_analysis.get("strengths", "")),
                 "llm_concerns": _ensure_string(llm_analysis.get("concerns", "")),

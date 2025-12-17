@@ -23,8 +23,11 @@ LINKEDIN_RE = re.compile(r"https?://(www\.)?linkedin\.com/[^\s)\]]+", re.I)
 GITHUB_RE = re.compile(r"https?://(www\.)?github\.com/[^\s)\]]+", re.I)
 
 SECTION_RE = re.compile(
-    r"^\s*(experience|education|skills(?:\s*&\s*abilities)?|projects|summary|languages|certifications|achievements|"
-    r"ניסיון|השכלה|מיומנויות|פרויקטים|סיכום|שפות|הסמכות)\s*[:\-]?\s*$",
+    r"^\s*(experience|professional\s+experience|work\s+experience|work\s+history|employment(?:\s+history)?|"
+    r"education|academic\s+background|qualifications|"
+    r"skills(?:\s*&\s*abilities)?|technical\s+skills|core\s+competencies|expertise|"
+    r"projects|summary|languages|certifications|achievements|"
+    r"ניסיון|ניסיון\s+תעסוקתי|ניסיון\s+מקצועי|השכלה|השכלה\s+אקדמית|מיומנויות|כישורים|פרויקטים|סיכום|שפות|הסמכות)\s*[:\-]?\s*$",
     re.I,
 )
 

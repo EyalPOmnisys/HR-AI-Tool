@@ -8,6 +8,7 @@ from app.db.base import get_db, SessionLocal
 from app.schemas.job import JobCreate, JobUpdate, JobOut, JobListOut
 from app.services.jobs import service as job_service
 from app.models.job_candidate import JobCandidate
+from app.models.job import Job
 from app.models.resume import Resume
 from app.schemas.match import CandidateRow
 from app.services.resumes import ingestion_pipeline as resume_utils
@@ -65,6 +66,14 @@ def update_candidate(
 @router.get("/{job_id}/candidates", response_model=List[CandidateRow])
 def get_job_candidates(job_id: UUID, db: Session = Depends(get_db)):
     """Get all candidates for a job (persisted results)."""
+    
+    # Fetch the job to check if it is a tech role
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    is_tech_role = job.analysis_json.get("is_tech_role", True) if job.analysis_json else True
+
     # Join JobCandidate with Resume to get contact info
     results = db.query(JobCandidate, Resume).join(
         Resume, JobCandidate.resume_id == Resume.id
@@ -123,7 +132,11 @@ def get_job_candidates(job_id: UUID, db: Session = Depends(get_db)):
         # Get tech-specific experience years (same logic as match service)
         exp_meta = extraction.get("experience_meta", {})
         rec_primary = exp_meta.get("recommended_primary_years", {})
-        years_of_experience = rec_primary.get("tech")
+        
+        if is_tech_role:
+            years_of_experience = rec_primary.get("tech")
+        else:
+            years_of_experience = rec_primary.get("other")
 
         candidates.append(CandidateRow(
             resume_id=jc.resume_id,
@@ -164,6 +177,22 @@ def create_job(payload: JobCreate, background: BackgroundTasks, db: Session = De
         icon=payload.icon,
         status=payload.status,
     )
+    
+    # If additional_skills were provided, store them in analysis_json immediately
+    if payload.additional_skills:
+        # Ensure analysis_json is a dict
+        current_analysis = dict(job.analysis_json) if job.analysis_json and isinstance(job.analysis_json, dict) else {}
+        current_analysis['additional_skills'] = payload.additional_skills
+        
+        job.analysis_json = current_analysis
+        
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(job, "analysis_json")
+        
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+    
     background.add_task(_analyze_async, job.id)
     return job
 
@@ -225,6 +254,23 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
         icon=payload.icon,
         status=payload.status,
     )
+    
+    # Update additional_skills in analysis_json if provided
+    if payload.additional_skills is not None:
+        # Ensure analysis_json is a dict (it might be None or something else)
+        current_analysis = dict(job.analysis_json) if job.analysis_json and isinstance(job.analysis_json, dict) else {}
+        current_analysis['additional_skills'] = payload.additional_skills
+        
+        # Force update by assigning a new dict (SQLAlchemy JSONB detection)
+        job.analysis_json = current_analysis
+        
+        # Mark the field as modified explicitly if needed, but reassignment usually works
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(job, "analysis_json")
+        
+        db.add(job)
+        db.commit()
+        db.refresh(job)
     
     # Only trigger background AI analysis if content actually changed
     if should_reanalyze:

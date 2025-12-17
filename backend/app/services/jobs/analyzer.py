@@ -13,32 +13,64 @@ JOB_ANALYSIS_PROMPT = load_prompt("jobs/job_analysis.prompt.txt")
 
 def _sanitize_result(result: dict) -> dict:
     """
-    Cleans up common hallucinations from SLMs (Small Language Models).
-    Removes single-letter skills, empty strings, and fixes tech_stack structure.
+    Cleans up common hallucinations from SLMs.
+    Smartly filters short terms based on a multi-disciplinary allow-list.
     """
     if not result:
         return result
 
-    # 1. Clean Skills (Remove "r", "c", "f" etc.)
+    # Valid short terms from all departments (Dev, Admin, Engineering, Marketing)
+    VALID_SHORT_TERMS = {
+        # Development & Algo
+        'c', 'r', 'go', 'js', 'ts', 'ai', 'ml', 'dl', 'os',
+        # QA & System
+        'qa', 'qc', 'std',
+        # Design & Product
+        'ui', 'ux', 'cx', 'pm',
+        # HR & Admin & Finance
+        'hr', 'cv', 'od', 'cpa', 'mba', 'pmo',
+        # Marketing
+        'pr', 'seo', 'sem', 'ppc'
+    }
+
+    def clean_list(items):
+        if not items: 
+            return []
+        cleaned = []
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            
+            s_clean = item.strip()
+            if not s_clean:
+                continue
+
+            # Filter logic:
+            # 1. Remove if it's a generic stopword (hallucination common in small models)
+            if s_clean.lower() in ['and', 'or', 'the', 'etc', 'skills', 'knowledge', 'tools']:
+                continue
+
+            # 2. Handle short terms (1-2 chars)
+            # If it's short AND NOT in our valid list -> Skip it (It's likely noise like "f", "x")
+            if len(s_clean) < 3 and s_clean.lower() not in VALID_SHORT_TERMS:
+                continue
+
+            cleaned.append(s_clean)
+        
+        # Remove duplicates while preserving order
+        return list(dict.fromkeys(cleaned))
+
+    # 1. Clean Skills
     if "skills" in result:
         for key in ["must_have", "nice_to_have"]:
             if key in result["skills"]:
-                valid_skills = []
-                for skill in result["skills"][key]:
-                    # Keep if length > 1 OR it is explicitly 'C' or 'R'
-                    if len(skill) > 1 or skill in ['C', 'R']: 
-                        valid_skills.append(skill)
-                result["skills"][key] = valid_skills
+                result["skills"][key] = clean_list(result["skills"][key])
 
-    # 2. Clean Tech Stack
+    # 2. Clean Tech Stack / Tools
     if "tech_stack" in result and isinstance(result["tech_stack"], dict):
         for category, items in result["tech_stack"].items():
             if isinstance(items, list):
-                # Remove empty strings and single letters (except C/R)
-                result["tech_stack"][category] = [
-                    i for i in items 
-                    if isinstance(i, str) and (len(i) > 1 or i in ['C', 'R'])
-                ]
+                result["tech_stack"][category] = clean_list(items)
     
     return result
 

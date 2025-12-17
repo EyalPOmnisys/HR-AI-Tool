@@ -91,6 +91,18 @@ class _EventHandler(FileSystemEventHandler):
 def main():
     print(f"[Watcher] 👀 Watching directory: {RESUME_DIR}")
     event_handler = _EventHandler()
+
+    # Scan for existing files on startup
+    print(f"[Watcher] 🔎 Scanning for existing files...")
+    existing_files = [
+        p for p in RESUME_DIR.iterdir() 
+        if p.is_file() and not event_handler._is_ignorable(p)
+    ]
+    print(f"[Watcher] Found {len(existing_files)} existing files. Processing...")
+    
+    for file_path in existing_files:
+        event_handler._process(file_path)
+
     observer = Observer(timeout=1.0)
     observer.schedule(event_handler, str(RESUME_DIR), recursive=False)
     observer.start()

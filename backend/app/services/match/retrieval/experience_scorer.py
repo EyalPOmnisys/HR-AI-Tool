@@ -57,11 +57,18 @@ def calculate_experience_match(
     else:
         diff = resume_years - job_min_years
         
-        # "If I am 5 (for 4) it's also great" -> +1 year is perfect
-        if diff <= 1.0:
+        # For open-ended roles ("3+ years"), expand the perfect zone
+        # The buffer is 50% of the minimum requirement
+        # Examples:
+        # - "3+ years": perfect until 4.5 years (3 + 1.5)
+        # - "5+ years": perfect until 7.5 years (5 + 2.5)
+        # - "7+ years": perfect until 10.5 years (7 + 3.5)
+        perfect_zone_buffer = job_min_years * 0.5
+        
+        if diff <= perfect_zone_buffer:
             return 1.0
             
-        # "6 is great but less" -> Decay starts
+        # Beyond the perfect zone -> Decay starts
         # NEW: Non-linear decay based on seniority level
         # For senior roles (7+), experience gaps are less critical
         else:
@@ -72,19 +79,19 @@ def calculate_experience_match(
             
             if job_min_years < 5:
                 # Junior/Mid: More sensitive to over-qualification
-                # Example: R=4, C=7 → diff=3 → score = 1.0 - 2*0.18 = 0.64
+                # Example: R=4, C=7 → diff=3, buffer=2 → score = 1.0 - 1*0.18 = 0.82
                 decay_factor = 0.18
             elif job_min_years < 7:
                 # Mid-Senior transition: Moderate decay
-                # Example: R=5, C=8 → diff=3 → score = 1.0 - 2*0.12 = 0.76
+                # Example: R=5, C=8 → diff=3, buffer=2.5 → score = 1.0 - 0.5*0.12 = 0.94
                 decay_factor = 0.12
             else:
                 # Senior (7+): Very gentle decay
-                # Example: R=7, C=10 → diff=3 → score = 1.0 - 2*0.06 = 0.88 ✓
-                # Example: R=10, C=15 → diff=5 → score = 1.0 - 4*0.06 = 0.76 ✓
+                # Example: R=7, C=10 → diff=3, buffer=3.5 → score = 1.0 (within buffer) ✓
+                # Example: R=10, C=15 → diff=5, buffer=5 → score = 1.0 (within buffer) ✓
                 decay_factor = 0.06
             
-            score = 1.0 - (diff - 1.0) * decay_factor
+            score = 1.0 - (diff - perfect_zone_buffer) * decay_factor
             return max(0.0, score)
 
 
@@ -117,18 +124,30 @@ def calculate_experience_match_detailed(
     
     job_min_years = float(job_min_years)
     
-    # Extract candidate years (prefer primary tech years)
+    # Determine if role is tech or non-tech
+    is_tech_role = job_analysis.get("is_tech_role", True)
+
+    # Extract candidate years based on role type
     exp_meta = candidate_extraction.get("experience_meta", {})
     rec_primary = exp_meta.get("recommended_primary_years", {})
-    candidate_years = rec_primary.get("tech")
+    totals = exp_meta.get("totals_by_category", {})
     
+    candidate_years = None
+
+    if is_tech_role:
+        # For tech roles: prefer specific tech experience
+        candidate_years = rec_primary.get("tech")
+        if candidate_years is None:
+            candidate_years = totals.get("tech")
+    else:
+        # For non-tech roles (HR, Marketing, etc.): use ONLY other experience
+        # This is critical: if looking for HR, we care about "other" (0.9), not "tech" (10.5)
+        candidate_years = rec_primary.get("other")
+        if candidate_years is None:
+            candidate_years = totals.get("other")
+
     if candidate_years is None:
-        # Fallback to total tech years
-        totals = exp_meta.get("totals_by_category", {})
-        candidate_years = totals.get("tech")
-    
-    if candidate_years is None:
-        # Last resort: legacy years_of_experience
+        # Last resort fallback
         candidate_years = candidate_extraction.get("years_of_experience", 0)
     
     candidate_years = float(candidate_years) if candidate_years else 0.0
@@ -136,16 +155,18 @@ def calculate_experience_match_detailed(
     # Calculate score
     score = calculate_experience_match(candidate_years, job_min_years)
     
-    # Determine verdict
+    # Determine verdict using dynamic thresholds
+    perfect_zone_buffer = job_min_years * 0.5
+    
     if job_min_years == 0:
         verdict = "no_requirement"
     elif candidate_years < job_min_years * 0.5:
         verdict = "significantly_under_qualified"
     elif candidate_years < job_min_years:
         verdict = "slightly_under_qualified"
-    elif candidate_years <= job_min_years + 1.0:
+    elif candidate_years <= job_min_years + perfect_zone_buffer:
         verdict = "perfect_match"
-    elif candidate_years <= job_min_years + 3.0:
+    elif candidate_years <= job_min_years + perfect_zone_buffer + 2.0:
         verdict = "moderately_over_qualified"
     else:
         verdict = "significantly_over_qualified"

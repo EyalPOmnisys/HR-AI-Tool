@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
+import { useMemo, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import { FaUser, FaBriefcase, FaClock, FaTrash } from 'react-icons/fa'
 import type { ResumeSummary } from '../../../types/resume'
 import styles from './ResumeCard.module.css'
@@ -10,13 +10,27 @@ type ResumeCardProps = {
 }
 
 export const ResumeCard = ({ resume, onSelect, onDelete }: ResumeCardProps): ReactElement => {
-  const { name, profession, yearsOfExperience } = resume
+  const { name, profession, yearsOfExperience, yearsByCategory } = resume
   const displayName = name ?? 'Unnamed candidate'
   // If profession is missing, show a neutral fallback
   const displayProfession = profession ?? 'Candidate'
 
-  const yearsLabel =
-    typeof yearsOfExperience === 'number' ? `${yearsOfExperience} years` : 'Not specified'
+  // Logic to find the category with the most years of experience
+  const topExperience = useMemo(() => {
+    const entries = Object.entries(yearsByCategory ?? {})
+    // Filter out zero values and sort by years descending (largest first)
+    const sorted = entries
+      .filter(([, yrs]) => typeof yrs === 'number' && yrs > 0)
+      .sort((a, b) => b[1] - a[1])
+
+    return sorted.length > 0 ? sorted[0] : null
+  }, [yearsByCategory])
+
+  const yearsLabel = topExperience
+    ? `${topExperience[0]}: ${topExperience[1]}y`
+    : typeof yearsOfExperience === 'number'
+    ? `${yearsOfExperience} years`
+    : 'Not specified'
   const isInteractive = typeof onSelect === 'function'
 
   const handleSelect = () => {
@@ -78,7 +92,7 @@ export const ResumeCard = ({ resume, onSelect, onDelete }: ResumeCardProps): Rea
             <span title={displayProfession}>{displayProfession}</span>
           </div>
 
-          <div className={styles.badge}>
+          <div className={styles.badge} title={topExperience ? 'Top Experience Category' : 'Total Experience'}>
             <FaClock className={styles.icon} />
             <span>{yearsLabel}</span>
           </div>

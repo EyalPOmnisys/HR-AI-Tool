@@ -523,6 +523,41 @@ _SECTION_HEADINGS = (
     "ניסיון|ניסיון תעסוקתי|ניסיון מקצועי|השכלה|השכלה אקדמית|מיומנויות|כישורים|פרויקטים|סיכום|שפות|הסמכות|כישורים טכניים"
 )
 
+
+def _canonicalize_section_name(raw: str) -> str:
+    """Map heading variants to canonical section identifiers used elsewhere."""
+    s = (raw or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    # Hebrew canonicalization
+    if s in {"ניסיון", "ניסיון תעסוקתי", "ניסיון מקצועי"}:
+        return "experience"
+    if s in {"מיומנויות", "כישורים", "כישורים טכניים"}:
+        return "skills"
+    if s in {"השכלה", "השכלה אקדמית"}:
+        return "education"
+    if s in {"סיכום"}:
+        return "summary"
+
+    # English canonicalization
+    if "experience" in s or s in {"employment", "employment history", "work history"}:
+        return "experience"
+    if "skill" in s or s in {"core competencies", "expertise"}:
+        return "skills"
+    if "education" in s or "academic" in s or s == "qualifications":
+        return "education"
+    if s == "projects":
+        return "projects"
+    if s == "summary":
+        return "summary"
+    if s == "languages":
+        return "languages"
+    if s == "certifications":
+        return "certifications"
+    if s == "achievements":
+        return "achievements"
+
+    return s
+
 def _extract_person_header(text: str) -> tuple[str, str]:
     """
     Extract potential header section (name, contact info) from top of resume.
@@ -555,11 +590,12 @@ def _split_by_headings(text: str) -> list[tuple[str, str]]:
     current_section = "general"
 
     for line in text.splitlines():
-        if pattern.match(line.strip()):
+        m = pattern.match(line.strip())
+        if m:
             if buffer:
                 sections.append((current_section, "\n".join(buffer).strip()))
                 buffer.clear()
-            current_section = pattern.match(line.strip()).group(1).lower()
+            current_section = _canonicalize_section_name(m.group(1))
         else:
             buffer.append(line)
     if buffer:

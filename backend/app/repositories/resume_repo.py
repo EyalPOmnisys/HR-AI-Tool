@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional, Tuple, Iterable
 from uuid import UUID
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 from app.models.resume import Resume, ResumeChunk, ResumeEmbedding
 
@@ -99,3 +99,39 @@ def delete_resume(db: Session, resume_id: UUID) -> bool:
     db.delete(resume)
     db.commit()
     return True
+
+
+def find_duplicate(db: Session, email: Optional[str], phone: Optional[str], exclude_id: UUID) -> Optional[Resume]:
+    if not email and not phone:
+        return None
+    
+    conditions = []
+    if email:
+        conditions.append(Resume.extraction_json.contains({"person": {"emails": [{"value": email}]}}))
+    if phone:
+        conditions.append(Resume.extraction_json.contains({"person": {"phones": [{"value": phone}]}}))
+        
+    if not conditions:
+        return None
+        
+    stmt = select(Resume).where(or_(*conditions)).where(Resume.id != exclude_id).limit(1)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def update_resume_content(db: Session, resume: Resume, *, file_path: str, content_hash: str, parsed_text: str, extraction_json: dict, mime_type: str, file_size: int) -> Resume:
+    resume.file_path = file_path
+    resume.content_hash = content_hash
+    resume.parsed_text = parsed_text
+    resume.extraction_json = extraction_json
+    resume.mime_type = mime_type
+    resume.file_size = file_size
+    resume.embedding = None  # Reset embedding
+    
+    # Clear existing chunks
+    db.query(ResumeChunk).filter(ResumeChunk.resume_id == resume.id).delete()
+    
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    return resume
+

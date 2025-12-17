@@ -56,6 +56,10 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
   ].slice(0, 5)
   const requirements = analysis?.requirements?.slice(0, 3) ?? []
 
+  // Check if AI analysis is complete (has summary or other AI-generated content)
+  const hasAiAnalysis = analysis?.summary || analysis?.organization || 
+                        (analysis?.skills?.must_have && analysis.skills.must_have.length > 0)
+
   // Use AI summary if available, otherwise fall back to original description
   const displayDescription = analysis?.summary || job.description
 
@@ -92,9 +96,25 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
       </header>
 
       <div className={styles.body}>
-        {!analysis ? (
-          // סקלטון יעודי עד שה-LLM מחזיר analysis_json
-          <JobCardAnalysisSkeleton />
+        {!hasAiAnalysis ? (
+          <>
+            {/* סקלטון יעודי עד שה-LLM מחזיר analysis_json */}
+            <JobCardAnalysisSkeleton />
+            
+            {/* Show additional_skills even while loading AI analysis */}
+            {job.additionalSkills && job.additionalSkills.length > 0 && (
+              <div className={styles.skills} style={{ marginTop: '12px' }}>
+                <div className={styles.sectionLabel}>Additional Skills:</div>
+                <div className={styles.skillsList}>
+                  {job.additionalSkills.map((skill, idx) => (
+                    <span key={idx} className={styles.skillBadge} title={skill} style={{ background: '#f0f9ff', border: '1px solid #bfdbfe', color: '#1e40af' }}>
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <p className={styles.description} title={displayDescription}>{displayDescription}</p>
@@ -155,6 +175,19 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
                   {techStack.map((tech, idx) => (
                     <span key={idx} className={styles.techBadge} title={tech}>
                       {tech}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {job.additionalSkills && job.additionalSkills.length > 0 && (
+              <div className={styles.skills}>
+                <div className={styles.sectionLabel}>Additional Skills:</div>
+                <div className={styles.skillsList}>
+                  {job.additionalSkills.map((skill, idx) => (
+                    <span key={idx} className={styles.skillBadge} title={skill} style={{ background: '#f0f9ff', border: '1px solid #bfdbfe', color: '#1e40af' }}>
+                      {skill}
                     </span>
                   ))}
                 </div>

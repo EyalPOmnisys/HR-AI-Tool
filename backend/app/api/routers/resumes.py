@@ -25,7 +25,7 @@ router = APIRouter(prefix="/resumes", tags=["resumes"])
 def list_resumes(
     db: Session = Depends(get_db),
     offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=10000),
+    limit: int = Query(3000, ge=1, le=10000),
 ):
     summaries, total = resume_service.list_resume_summaries(db, offset=offset, limit=limit)
     items = [ResumeSummary(**summary) for summary in summaries]

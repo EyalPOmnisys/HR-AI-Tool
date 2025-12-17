@@ -382,6 +382,18 @@ function JobDescriptionSections({ job }: { job: ApiJob }) {
     );
   }
 
+  if (Array.isArray(job.additional_skills) && job.additional_skills.length) {
+    sections.push(
+      <Section key="additional-skills" title="Additional Skills">
+        <div>
+          {job.additional_skills.map((skill: string, idx: number) => (
+            <span key={`${skill}-${idx}`} style={{ ...badgeStyle, background: '#f0f9ff', borderColor: '#bfdbfe', color: '#1e40af' }}>{skill}</span>
+          ))}
+        </div>
+      </Section>
+    );
+  }
+
   const tech = data?.tech_stack;
   const techCategories: Array<keyof TechStack> = ['languages', 'frameworks', 'databases', 'cloud', 'tools', 'business'];
   if (

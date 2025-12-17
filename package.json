@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@types/react-virtualized-auto-sizer": "^1.0.4",
+    "@types/react-window": "^1.8.8",
+    "react-virtualized-auto-sizer": "^1.0.26",
+    "react-window": "^2.2.3"
+  }
+}

@@ -37,13 +37,50 @@ BANNED_ROLE_TITLES = {
 ALLOWED_CATEGORIES = {"tech", "military", "hospitality", "other"}
 
 LLM_TIMEOUT_S = 120  # Increased from 90 to allow more time for complex resumes
-RETRIES = 2
+RETRIES = 3
 
 # Performance tracking
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_llm_extraction_payload(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize common key variants and ensure required top-level keys exist.
+
+    The LLM can occasionally drift from the expected schema (e.g. 'work_experience'
+    instead of 'experience'). This normalizer keeps the pipeline resilient while
+    preserving the original content as much as possible.
+    """
+    if not isinstance(obj, dict):
+        return {}
+
+    out = dict(obj)
+
+    # Map common variants to canonical keys.
+    key_aliases = {
+        "work_experience": "experience",
+        "workExperience": "experience",
+        "professional_experience": "experience",
+        "professionalExperience": "experience",
+        "experiences": "experience",
+        "jobs": "experience",
+        "positions": "experience",
+        "educations": "education",
+        "studies": "education",
+        "candidate": "person",
+    }
+    for src, dst in key_aliases.items():
+        if dst not in out and src in out:
+            out[dst] = out.get(src)
+
+    # Ensure required keys exist for validator.
+    out.setdefault("person", {})
+    out.setdefault("experience", None)
+    out.setdefault("education", None)
+
+    return out
 
 
 def _is_number(x: Any) -> bool:
@@ -786,7 +823,13 @@ def _final_normalize(extraction: Dict[str, Any], cleaned_cluster: Dict[str, Any]
 
 # --------------------------------- LLM wrapper --------------------------------
 
-def _call_llm_json(messages: List[Dict[str, str]], timeout: int = LLM_TIMEOUT_S) -> Optional[Dict[str, Any]]:
+def _call_llm_json(
+    messages: List[Dict[str, str]],
+    timeout: int = LLM_TIMEOUT_S,
+    *,
+    options: Optional[Dict[str, Any]] = None,
+    max_tokens: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
     """Thin wrapper for JSON chat calls. Returns dict or None."""
     try:
         # Use resume-specific model if configured, otherwise default
@@ -795,9 +838,13 @@ def _call_llm_json(messages: List[Dict[str, str]], timeout: int = LLM_TIMEOUT_S)
         else:
             client = default_llm_client
 
-        resp = client.chat_json(messages, timeout=timeout)
+        resp = client.chat_json(messages, timeout=timeout, options=options, max_tokens=max_tokens)
         data = resp.data
         if isinstance(data, dict):
+            # Treat LLM-client error payloads as failures so caller retries.
+            if data.get("__llm_error__"):
+                logger.warning("LLM returned error payload: %s", data.get("__llm_error__"))
+                return None
             return data
         return None
     except Exception:
@@ -829,7 +876,15 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
             {"role": "system", "content": RESUME_EXTRACTION_PROMPT},
             {"role": "user", "content": user},
         ]
-        cand = _call_llm_json(messages, timeout=max(60, LLM_TIMEOUT_S))
+        # Resume extraction outputs can be large; request a bigger output budget from Ollama.
+        cand = _call_llm_json(
+            messages,
+            timeout=max(60, LLM_TIMEOUT_S),
+            options={"num_predict": 4096},
+            max_tokens=4096,
+        )
+        if isinstance(cand, dict):
+            cand = _normalize_llm_extraction_payload(cand)
         ok, _why = _validate_structured_payload(cand) if cand is not None else (False, "no data")
         if ok:
             extraction = cand
@@ -854,6 +909,14 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
         return safe_out
 
     extraction["_base_json_"] = base_json
+
+    # Normalize null collections to empty lists for downstream logic.
+    if extraction.get("experience") is None:
+        extraction["experience"] = []
+    if extraction.get("education") is None:
+        extraction["education"] = []
+    if extraction.get("skills") is None:
+        extraction["skills"] = []
 
     # Normalize date field names and values
     for role in extraction.get("experience") or []:

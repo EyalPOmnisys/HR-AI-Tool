@@ -296,19 +296,25 @@ class LLMJudge:
         all_evaluations = []
         num_batches = (len(candidates) + LLMJudge.BATCH_SIZE - 1) // LLMJudge.BATCH_SIZE
         
+        tasks = []
         for batch_idx in range(num_batches):
             start_idx = batch_idx * LLMJudge.BATCH_SIZE
             end_idx = min(start_idx + LLMJudge.BATCH_SIZE, len(candidates))
             batch = candidates[start_idx:end_idx]
             
-            # Call LLM for this batch
-            batch_evaluations = await LLMJudge._call_llm_for_batch(
+            # Create task for this batch
+            tasks.append(LLMJudge._call_llm_for_batch(
                 job_data=job_data,
                 candidates=batch,
                 batch_num=batch_idx + 1
-            )
+            ))
             
-            all_evaluations.extend(batch_evaluations)
+        # Run all batches in parallel
+        results_lists = await asyncio.gather(*tasks)
+        
+        # Flatten results
+        for res in results_lists:
+            all_evaluations.extend(res)
         
         return all_evaluations
     
@@ -357,6 +363,11 @@ class LLMJudge:
                     {"role": "user", "content": "Here is the data for the job and candidates to evaluate. Please output the JSON evaluation list as requested:\n\n" + json.dumps(user_prompt, ensure_ascii=False, indent=2)}
                 ]
                 
+                # DEBUG LOGGING
+                logger.info(f"DEBUG: Sending prompt to LLM (Batch {batch_num}). User prompt keys: {list(user_prompt.keys())}")
+                logger.info(f"DEBUG: Job Title: {user_prompt['job'].get('title')}")
+                logger.info(f"DEBUG: Candidate count: {len(user_prompt['candidates'])}")
+
                 # Call LLM (synchronous call wrapped in executor)
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
@@ -364,9 +375,23 @@ class LLMJudge:
                     partial(default_llm_client.chat_json, messages, timeout=180)
                 )
                 
+                # DEBUG LOGGING
+                logger.info(f"DEBUG: LLM Response received (Batch {batch_num})")
+                if response.data:
+                    logger.info(f"DEBUG: Raw response data keys: {list(response.data.keys())}")
+                    logger.info(f"DEBUG: Raw response content: {json.dumps(response.data, ensure_ascii=False)[:1000]}...")
+                else:
+                    logger.info("DEBUG: Response data is empty or None")
+
                 # Parse response
                 content_dict = response.data
-                evaluations = content_dict.get("evaluations", [])
+                
+                # Handle 'evaluations', 'evaluation_list', and singular 'evaluation' keys
+                evaluations = content_dict.get("evaluations")
+                if not evaluations:
+                    evaluations = content_dict.get("evaluation_list")
+                if not evaluations:
+                    evaluations = content_dict.get("evaluation", [])
                 
                 if not evaluations:
                     logger.warning(f"⚠️  LLM returned valid JSON but no 'evaluations' list. Keys found: {list(content_dict.keys())}")
@@ -388,7 +413,13 @@ class LLMJudge:
                 for ev in evaluations:
                     # Get candidate info
                     resume_id = ev.get("resume_id", "unknown")
-                    final_score = ev.get("final_score", 0)
+                    
+                    # FIX: Handle different score keys (final_score vs match_score vs score)
+                    final_score = ev.get("final_score")
+                    if final_score is None:
+                        final_score = ev.get("match_score")
+                    if final_score is None:
+                        final_score = ev.get("score", 0)
                     
                     # Find candidate name from input
                     candidate_name = "Unknown"
@@ -465,19 +496,56 @@ class LLMJudge:
             stage1_score = candidate.get("rag_score", 0)
             
             if evaluation:
-                # Stage 2 LLM score (from LLM evaluation)
-                stage2_score = evaluation.get("final_score", 0)
+                # Stage 2 LLM score (Handle both keys)
+                stage2_score = evaluation.get("final_score")
+                if stage2_score is None:
+                    stage2_score = evaluation.get("match_score")
+                if stage2_score is None:
+                    stage2_score = evaluation.get("fit_score")
+                if stage2_score is None:
+                    stage2_score = evaluation.get("score", 0)
                 
                 # Blend scores: 30% Stage 1 (ensemble) + 70% Stage 2 (LLM)
                 blended_final_score = int((stage1_score * 0.3) + (stage2_score * 0.7))
                 
+                # Handle text fields (strengths/concerns vs match_reasoning)
+                strengths = evaluation.get("strengths")
+                concerns = evaluation.get("concerns")
+                
+                # Fallback if LLM returned alternative fields
+                if not strengths or not concerns:
+                    # Check for common variations seen in logs
+                    reasoning = evaluation.get("match_reasoning") or evaluation.get("match_reason") or evaluation.get("fit_reasoning")
+                    notes = evaluation.get("notes")
+                    
+                    # Handle case where reasoning is a dictionary (seen in logs)
+                    if isinstance(reasoning, dict):
+                        parts = []
+                        for k, v in reasoning.items():
+                            if isinstance(v, (str, int, float)):
+                                parts.append(f"• {k.replace('_', ' ').title()}: {v}")
+                        reasoning = "\n".join(parts)
+                    
+                    # Assign fallbacks
+                    if not strengths:
+                        strengths = str(reasoning) if reasoning else (str(notes) if notes else "Analysis not available.")
+                        
+                    if not concerns:
+                        # If we used reasoning for strengths, concerns might be redundant or missing
+                        # Try to extract negative points from reasoning if possible, otherwise provide a neutral message
+                        concerns = "Please review the detailed analysis in the strengths section." if reasoning else "No specific concerns identified."
+
+                # Ensure they are strings
+                if not isinstance(strengths, str): strengths = str(strengths)
+                if not isinstance(concerns, str): concerns = str(concerns)
+
                 results.append({
                     **candidate,
                     "llm_score": stage2_score,  # Stage 2 LLM score
                     "final_score": blended_final_score,  # Blended final score
                     "llm_analysis": {
-                        "strengths": evaluation.get("strengths", ""),
-                        "concerns": evaluation.get("concerns", "")
+                        "strengths": strengths,
+                        "concerns": concerns
                     }
                 })
             else:

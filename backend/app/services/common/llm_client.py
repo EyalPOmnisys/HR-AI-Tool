@@ -4,6 +4,7 @@ prompt loading, and provider abstraction for all AI-powered extraction and analy
 from __future__ import annotations
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -130,30 +131,47 @@ class LLMClient:
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
-    def chat_text(self, messages: List[Dict[str, str]], timeout: int = 60) -> str:
+    def chat_text(
+        self,
+        messages: List[Dict[str, str]],
+        timeout: int = 60,
+        *,
+        options: Optional[Dict[str, Any]] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         """Run a chat completion expecting plain text output."""
         if self.provider == "ollama":
-            return self._chat_text_ollama(messages, timeout)
+            return self._chat_text_ollama(messages, timeout, options=options)
         else:
-            return self._chat_text_openai(messages, timeout)
+            return self._chat_text_openai(messages, timeout, max_tokens=max_tokens)
 
-    def chat_json(self, messages: List[Dict[str, str]], timeout: int = 90) -> _JSONResponse:
+    def chat_json(
+        self,
+        messages: List[Dict[str, str]],
+        timeout: int = 90,
+        *,
+        options: Optional[Dict[str, Any]] = None,
+        max_tokens: Optional[int] = None,
+    ) -> _JSONResponse:
         """
         Run a chat completion that MUST return valid JSON.
         """
         if self.provider == "ollama":
-            return self._chat_json_ollama(messages, timeout)
+            return self._chat_json_ollama(messages, timeout, options=options)
         else:
-            return self._chat_json_openai(messages, timeout)
+            return self._chat_json_openai(messages, timeout, max_tokens=max_tokens)
 
     # ===== Ollama Implementation =====
-    def _chat_text_ollama(self, messages: List[Dict[str, str]], timeout: int) -> str:
+    def _chat_text_ollama(self, messages: List[Dict[str, str]], timeout: int, *, options: Optional[Dict[str, Any]] = None) -> str:
         try:
+            merged_options = self.default_options.copy()
+            if options:
+                merged_options.update(options)
             payload = {
                 "model": self.model,
                 "messages": messages,
                 "stream": False,
-                "options": self.default_options,
+                "options": merged_options,
                 "keep_alive": "30m",
             }
             response = requests.post(self.chat_url, json=payload, timeout=timeout)
@@ -169,14 +187,17 @@ class LLMClient:
             logger.exception("Unexpected error in Ollama chat_text: %s", e)
             raise
 
-    def _chat_json_ollama(self, messages: List[Dict[str, str]], timeout: int) -> _JSONResponse:
+    def _chat_json_ollama(self, messages: List[Dict[str, str]], timeout: int, *, options: Optional[Dict[str, Any]] = None) -> _JSONResponse:
         try:
+            merged_options = self.default_options.copy()
+            if options:
+                merged_options.update(options)
             payload = {
                 "model": self.model,
                 "messages": messages,
                 "format": "json",
                 "stream": False,
-                "options": self.default_options,
+                "options": merged_options,
                 "keep_alive": "30m",
             }
             response = requests.post(self.chat_url, json=payload, timeout=timeout)
@@ -186,8 +207,9 @@ class LLMClient:
             try:
                 data = self._coerce_json(raw) if raw else {}
             except json.JSONDecodeError as je:
+                preview = (raw or "")[:1200]
                 logger.error("JSON decode failed; returning error payload")
-                data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw}
+                data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw, "__raw_preview__": preview}
             
             logger.debug("🤖 Ollama chat_json parsed keys: %s", list(data.keys()))
             return _JSONResponse(data=data)
@@ -199,14 +221,17 @@ class LLMClient:
             return _JSONResponse(data={"__llm_error__": str(e)})
 
     # ===== OpenAI Implementation =====
-    def _chat_text_openai(self, messages: List[Dict[str, str]], timeout: int) -> str:
+    def _chat_text_openai(self, messages: List[Dict[str, str]], timeout: int, *, max_tokens: Optional[int] = None) -> str:
         try:
             client = _get_openai_client()
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                timeout=timeout,
-            )
+            kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "timeout": timeout,
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            resp = client.chat.completions.create(**kwargs)
             content = (resp.choices[0].message.content or "").strip()
             logger.debug("OpenAI chat_text received %d chars", len(content))
             return content
@@ -217,21 +242,25 @@ class LLMClient:
             logger.exception("Unexpected error in OpenAI chat_text: %s", e)
             raise
 
-    def _chat_json_openai(self, messages: List[Dict[str, str]], timeout: int) -> _JSONResponse:
+    def _chat_json_openai(self, messages: List[Dict[str, str]], timeout: int, *, max_tokens: Optional[int] = None) -> _JSONResponse:
         try:
             client = _get_openai_client()
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                timeout=timeout,
-            )
+            kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                "timeout": timeout,
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            resp = client.chat.completions.create(**kwargs)
             raw = (resp.choices[0].message.content or "").strip()
             try:
-                data = json.loads(raw) if raw else {}
+                data = self._coerce_json(raw) if raw else {}
             except json.JSONDecodeError as je:
+                preview = (raw or "")[:1200]
                 logger.error("JSON decode failed; returning error payload")
-                data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw}
+                data = {"__llm_error__": f"json_decode_error: {je}", "__raw__": raw, "__raw_preview__": preview}
             logger.debug("OpenAI chat_json parsed keys: %s", list(data.keys()))
             return _JSONResponse(data=data)
         except (APIConnectionError, RateLimitError, BadRequestError) as e:
@@ -243,21 +272,83 @@ class LLMClient:
 
     @staticmethod
     def _coerce_json(text: str) -> Dict[str, Any]:
-        """Attempt to repair common failures when the LLM returns markdown-wrapped JSON."""
-        stripped = text.strip()
+        """Best-effort JSON object parser for LLM responses.
+
+        Handles common failure modes:
+        - Markdown code fences (```json ... ```)
+        - Extra commentary before/after JSON
+        - JSON embedded inside a larger string
+        """
+
+        def strip_code_fences(s: str) -> str:
+            # Remove leading/trailing ``` / ```json fences if present.
+            s = s.strip()
+            s = re.sub(r"^\s*```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+            s = re.sub(r"\s*```\s*$", "", s)
+            return s.strip()
+
+        def extract_first_json_object(s: str) -> Optional[str]:
+            # Find the first balanced {...} object. This avoids grabbing too much
+            # when the response contains additional braces later.
+            start = s.find("{")
+            if start == -1:
+                return None
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(s)):
+                ch = s[i]
+                if in_string:
+                    if escape:
+                        escape = False
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        continue
+                    if ch == '"':
+                        in_string = False
+                    continue
+                else:
+                    if ch == '"':
+                        in_string = True
+                        continue
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return s[start : i + 1]
+            return None
+
+        stripped = strip_code_fences(text or "")
         if not stripped:
             return {}
-        if stripped.startswith("```"):
-            stripped = stripped.strip("`")
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            candidate = stripped[start : end + 1]
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                pass
-        return json.loads(stripped)
+
+        # Fast path: already valid JSON object.
+        try:
+            obj = json.loads(stripped)
+            if isinstance(obj, dict):
+                return obj
+            # Sometimes a model returns a single-element list with a dict.
+            if isinstance(obj, list) and len(obj) == 1 and isinstance(obj[0], dict):
+                return obj[0]
+        except json.JSONDecodeError:
+            pass
+
+        # Attempt to extract the first embedded JSON object.
+        candidate = extract_first_json_object(stripped)
+        if candidate:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+            if isinstance(obj, list) and len(obj) == 1 and isinstance(obj[0], dict):
+                return obj[0]
+
+        # Last resort: let json raise a useful error.
+        obj = json.loads(stripped)
+        if not isinstance(obj, dict):
+            raise json.JSONDecodeError("Expected JSON object", stripped, 0)
+        return obj
 
 
 # Export a default instance so existing imports keep working

@@ -1,7 +1,7 @@
 # Purpose: Pydantic DTOs for Job endpoints including AI analysis fields.
 
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from uuid import UUID
 
@@ -12,6 +12,7 @@ class JobCreate(BaseModel):
     free_text: Optional[str] = None
     icon: Optional[str] = Field(default=None, max_length=64)
     status: Optional[str] = Field(default="draft", max_length=32)
+    additional_skills: Optional[list[str]] = None
 
 
 class JobUpdate(BaseModel):
@@ -20,6 +21,7 @@ class JobUpdate(BaseModel):
     free_text: Optional[str] = None
     icon: Optional[str] = Field(default=None, max_length=64)
     status: Optional[str] = Field(default=None, max_length=32)
+    additional_skills: Optional[list[str]] = None
 
 
 class JobOut(BaseModel):
@@ -39,6 +41,15 @@ class JobOut(BaseModel):
 
     created_at: datetime
     updated_at: datetime
+    
+    additional_skills: Optional[list[str]] = None
+
+    @model_validator(mode='after')
+    def extract_additional_skills(self):
+        """Extract additional_skills from analysis_json if available."""
+        if self.analysis_json and isinstance(self.analysis_json, dict):
+            self.additional_skills = self.analysis_json.get('additional_skills')
+        return self
 
     class Config:
         from_attributes = True

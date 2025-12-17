@@ -46,6 +46,8 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
   const [description, setDescription] = useState('')
   const [freeText, setFreeText] = useState('')
   const [icon, setIcon] = useState(iconOptions[0])
+  const [additionalSkills, setAdditionalSkills] = useState<string[]>([])
+  const [currentSkill, setCurrentSkill] = useState('')
 
   useEffect(() => {
     if (job) {
@@ -54,12 +56,15 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
       setFreeText(job.freeText)
       const jobIcon = job.icon && iconOptions.includes(job.icon) ? job.icon : iconOptions[0]
       setIcon(jobIcon)
+      setAdditionalSkills(job.additionalSkills || [])
     } else {
       setTitle('')
       setDescription('')
       setFreeText('')
       setIcon(iconOptions[0])
+      setAdditionalSkills([])
     }
+    setCurrentSkill('')
   }, [job])
 
   if (!open) {
@@ -74,7 +79,26 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onSubmit({ title, description, freeText, icon })
+    onSubmit({ title, description, freeText, icon, additionalSkills })
+  }
+
+  const handleAddSkill = () => {
+    const trimmedSkill = currentSkill.trim()
+    if (trimmedSkill && !additionalSkills.includes(trimmedSkill)) {
+      setAdditionalSkills([...additionalSkills, trimmedSkill])
+      setCurrentSkill('')
+    }
+  }
+
+  const handleRemoveSkill = (skillToRemove: string) => {
+    setAdditionalSkills(additionalSkills.filter(skill => skill !== skillToRemove))
+  }
+
+  const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      handleAddSkill()
+    }
   }
 
   const isValid = title.trim().length > 0 && description.trim().length > 0
@@ -127,6 +151,75 @@ export const JobFormModal = ({ open, mode, job, onCancel, onSubmit }: JobFormMod
                 placeholder="What impression should candidates leave with?"
                 rows={3}
               />
+            </label>
+            <label>
+              Additional Skills
+              <span style={{ fontSize: '0.85rem', color: '#64748b', marginLeft: '0.5rem' }}>Add specific skills the AI might not identify</span>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                <input
+                  value={currentSkill}
+                  onChange={(event) => setCurrentSkill(event.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="e.g., Python, Leadership, etc."
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddSkill}
+                  disabled={!currentSkill.trim()}
+                  style={{
+                    padding: '0 16px',
+                    background: currentSkill.trim() ? '#3b82f6' : '#d1d5db',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: currentSkill.trim() ? 'pointer' : 'not-allowed',
+                    fontWeight: 500
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+              {additionalSkills.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+                  {additionalSkills.map((skill) => (
+                    <span
+                      key={skill}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        background: '#f0f9ff',
+                        border: '1px solid #bfdbfe',
+                        borderRadius: '999px',
+                        fontSize: '0.875rem',
+                        color: '#1e40af'
+                      }}
+                    >
+                      {skill}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSkill(skill)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          color: '#1e40af',
+                          fontSize: '1.1rem',
+                          lineHeight: 1
+                        }}
+                        aria-label={`Remove ${skill}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </label>
           </div>
 

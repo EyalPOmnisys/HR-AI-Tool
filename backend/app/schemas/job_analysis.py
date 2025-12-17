@@ -40,18 +40,20 @@ class SecurityClearance(BaseModel):
 class JobAnalysis(BaseModel):
     version: int = 1
     role_title: Optional[str] = None
+    is_tech_role: bool = Field(default=True, description="True if the role is technical (R&D, QA, Data, Engineering), False otherwise")
     organization: Optional[str] = None
     locations: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
     responsibilities: List[str] = Field(default_factory=list)
     requirements: List[str] = Field(default_factory=list)
     skills: Skills = Field(default_factory=Skills)
+    additional_skills: List[str] = Field(default_factory=list)
     experience: Experience = Field(default_factory=Experience)
     education: List[str] = Field(default_factory=list)
     salary_range: Optional[SalaryRange] = None
     security_clearance: SecurityClearance = Field(default_factory=SecurityClearance)
-    tech_stack: TechStack = Field(default_factory=TechStack)
-    languages: List[LanguageItem] = Field(default_factory=list)
+    tech_stack: dict = Field(default_factory=dict)
+    languages: List[str] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
     evidence: List[str] = Field(default_factory=list)
 

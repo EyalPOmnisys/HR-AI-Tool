@@ -37,6 +37,7 @@ export type SecurityClearance = {
 export type JobAnalysis = {
   version: number;
   role_title: string | null;
+  is_tech_role: boolean;
   organization: string | null;
   locations: string[];
   summary: string | null;
@@ -48,6 +49,8 @@ export type JobAnalysis = {
     must_have: string[];
     nice_to_have: string[];
   };
+  
+  additional_skills?: string[];
 
   experience: Experience;
   education: string[];
@@ -77,6 +80,8 @@ export type ApiJob = {
   created_at: string;
   updated_at: string;
 
+  additional_skills: string[] | null;
+
   analysis_json: JobAnalysis | null;
   analysis_model: string | null;
   analysis_version: number | null;
@@ -92,6 +97,7 @@ export type CreateJobPayload = {
   free_text?: string;
   icon?: string;
   status?: string;
+  additional_skills?: string[];
 };
 
 export type UpdateJobPayload = {
@@ -100,6 +106,7 @@ export type UpdateJobPayload = {
   free_text?: string;
   icon?: string;
   status?: string;
+  additional_skills?: string[];
 };
 
 export type JobListResponse = {
@@ -116,6 +123,7 @@ export interface Job {
   icon: string;
   postedAt: string;
   analysis: JobAnalysis | null;
+  additionalSkills: string[];
 }
 
 export type JobDraft = Omit<Job, 'id' | 'postedAt' | 'analysis'>;

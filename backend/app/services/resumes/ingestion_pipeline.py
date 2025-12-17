@@ -64,6 +64,11 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
         resume_repo.set_status(db, resume, status="parsing")
         txt = parse_to_text(Path(resume.file_path))
         
+        # VALIDATION: Check if parsing actually yielded meaningful text
+        if not txt or len(txt.strip()) < 50:
+            resume_repo.delete_resume(db, resume.id)
+            raise ValueError(f"Parsing failed: Extracted text is too short or empty for file {resume.file_path}. Resume deleted.")
+
         # --- DEBUG PRINT ---
         print(f"--- DEBUG: Extracted text for {resume.file_path} ---")
         print((txt or "")[:500])
@@ -74,6 +79,45 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
 
         resume_repo.set_status(db, resume, status="extracting")
         resume = extract_structured(db, resume)
+
+        # --- DUPLICATE CHECK ---
+        extraction = resume.extraction_json or {}
+        person = extraction.get("person", {})
+        
+        emails = person.get("emails", [])
+        email_val = emails[0].get("value") if emails and isinstance(emails, list) and len(emails) > 0 and isinstance(emails[0], dict) else None
+        
+        phones = person.get("phones", [])
+        phone_val = phones[0].get("value") if phones and isinstance(phones, list) and len(phones) > 0 and isinstance(phones[0], dict) else None
+        
+        if email_val or phone_val:
+            duplicate = resume_repo.find_duplicate(db, email_val, phone_val, exclude_id=resume.id)
+            if duplicate:
+                print(f"--- DUPLICATE FOUND: Merging {resume.id} into {duplicate.id} ---")
+                # Capture data from new resume
+                new_path = resume.file_path
+                new_hash = resume.content_hash
+                new_text = resume.parsed_text
+                new_json = resume.extraction_json
+                new_mime = resume.mime_type
+                new_size = resume.file_size
+                new_id = resume.id
+                
+                # Delete new resume to free up the content_hash
+                resume_repo.delete_resume(db, new_id)
+                
+                # Update old resume
+                resume = resume_repo.update_resume_content(
+                    db, 
+                    duplicate, 
+                    file_path=new_path,
+                    content_hash=new_hash,
+                    parsed_text=new_text,
+                    extraction_json=new_json,
+                    mime_type=new_mime,
+                    file_size=new_size
+                )
+        # -----------------------
 
         # Validate extraction quality
         if resume.extraction_json:
@@ -106,6 +150,8 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
         return resume
 
     except Exception as e:
+        if "Resume deleted" in str(e):
+            raise e
         resume_repo.set_status(db, resume, status="error", error=str(e))
         raise
 
