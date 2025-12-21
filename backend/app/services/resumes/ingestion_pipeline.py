@@ -735,6 +735,18 @@ def get_resume(db: Session, resume_id: UUID) -> Optional[Resume]:
 
 def run_full_ingestion(db: Session, path: Path) -> Resume:
     resume = ingest_file(db, path)
+
+    # Prevent infinite loops on restart:
+    # If the resume is already processed successfully, skip it.
+    if resume.status == "ready":
+        print(f"[Pipeline] ⏭️ Skipping {path.name} - already READY.")
+        return resume
+
+    # If the resume previously failed, do not retry automatically (prevents crash loops).
+    if resume.status == "error":
+        print(f"[Pipeline] ⏭️ Skipping {path.name} - marked as ERROR.")
+        return resume
+
     resume = parse_and_extract(db, resume)
     resume = chunk_and_embed(db, resume)
     return resume
