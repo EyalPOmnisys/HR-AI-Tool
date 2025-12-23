@@ -81,9 +81,12 @@ def upsert_chunk_embedding(db: Session, chunk: ResumeChunk, *, embedding: list[f
 
 
 def list_resumes(db: Session, *, offset: int = 0, limit: int = 20) -> Tuple[list[Resume], int]:
-    total = db.execute(select(func.count()).select_from(Resume)).scalar_one()
+    # Filter out 'error' status to keep UI clean
+    stmt = select(Resume).where(Resume.status != 'error')
+    
+    total = db.execute(select(func.count()).select_from(Resume).where(Resume.status != 'error')).scalar_one()
     rows = db.execute(
-        select(Resume).order_by(Resume.created_at.desc()).offset(offset).limit(limit)
+        stmt.order_by(Resume.created_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
     return rows, total
 

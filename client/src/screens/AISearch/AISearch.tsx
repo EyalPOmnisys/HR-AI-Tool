@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactElement } from 'react';
 import styles from './AISearch.module.css';
 import Form from '../../components/ai-search/Form/Form';
+import { FormSkeleton } from '../../components/ai-search/Form/FormSkeleton';
 import Loading from '../../components/ai-search/Loading/Loading';
 import Dashboard from '../../components/ai-search/Dashboard/Dashboard';
 import { listJobs, getJobCandidates } from '../../services/jobs';
@@ -43,7 +44,11 @@ export default function AISearch(): ReactElement {
     const fetchJobs = async () => {
       try {
         setIsLoadingJobs(true);
-        const response = await listJobs();
+        // Add minimum delay to show skeleton
+        const [response] = await Promise.all([
+          listJobs(),
+          new Promise(resolve => setTimeout(resolve, 1000))
+        ]);
         setJobs(response.items);
         if (response.items.length > 0) {
           setSelectedJobId(response.items[0].id);
@@ -186,17 +191,20 @@ export default function AISearch(): ReactElement {
       </header>
 
       {view === 'form' && (
-        <Form
-          jobs={jobs}
-          selectedJobId={selectedJobId}
-          desiredCandidates={desiredCandidates}
-          selectedJob={selectedJob}
-          isLoadingJobs={isLoadingJobs}
-          error={matchError}
-          onJobChange={handleJobChange}
-          onCandidateChange={handleCandidateChange}
-          onSubmit={handleGenerate}
-        />
+        isLoadingJobs ? (
+          <FormSkeleton />
+        ) : (
+          <Form
+            jobs={jobs}
+            selectedJobId={selectedJobId}
+            desiredCandidates={desiredCandidates}
+            selectedJob={selectedJob}
+            error={matchError}
+            onJobChange={handleJobChange}
+            onCandidateChange={handleCandidateChange}
+            onSubmit={handleGenerate}
+          />
+        )
       )}
 
       {view === 'loading' && (

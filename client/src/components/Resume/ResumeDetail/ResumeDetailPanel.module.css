@@ -24,6 +24,8 @@
   max-width: 1400px;
   gap: 0;
   overflow: hidden;
+  position: relative; /* Ensure z-index works */
+  z-index: 1001;
 }
 
 .header {

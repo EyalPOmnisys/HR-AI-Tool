@@ -40,13 +40,13 @@ from app.services.resumes.validation import validate_extraction, create_quality_
 # INGESTION & PIPELINE STEPS
 # ---------------------------------------------------------------------
 
-def ingest_file(db: Session, path: Path) -> Resume:
+def ingest_file(db: Session, path: Path) -> tuple[Resume, bool]:
     data = read_file_bytes(path)
     content_hash = sha256_of_bytes(data)
 
     existing = resume_repo.get_by_hash(db, content_hash)
     if existing:
-        return existing
+        return existing, True
 
     mime = detect_mime(path)
     resume = resume_repo.create_resume(
@@ -56,7 +56,7 @@ def ingest_file(db: Session, path: Path) -> Resume:
         mime_type=mime,
         file_size=len(data),
     )
-    return resume
+    return resume, False
 
 
 def parse_and_extract(db: Session, resume: Resume) -> Resume:
@@ -66,14 +66,8 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
         
         # VALIDATION: Check if parsing actually yielded meaningful text
         if not txt or len(txt.strip()) < 50:
-            resume_repo.delete_resume(db, resume.id)
-            raise ValueError(f"Parsing failed: Extracted text is too short or empty for file {resume.file_path}. Resume deleted.")
-
-        # --- DEBUG PRINT ---
-        print(f"--- DEBUG: Extracted text for {resume.file_path} ---")
-        print((txt or "")[:500])
-        print("---------------------------------------------------")
-        # -------------------
+            # Don't delete! Just raise error so it gets marked as 'error' status.
+            raise ValueError(f"Parsing failed: Text too short/empty.")
 
         resume = resume_repo.attach_parsed_text(db, resume, parsed_text=txt or "")
 
@@ -734,22 +728,35 @@ def get_resume(db: Session, resume_id: UUID) -> Optional[Resume]:
 
 
 def run_full_ingestion(db: Session, path: Path) -> Resume:
-    resume = ingest_file(db, path)
+    """
+    Ingest a resume with STRICT duplicate prevention.
+    ONE STRIKE POLICY: If it exists in DB, we skip it. No retries.
+    """
+    # Step 1: Initial identification by content (Hash)
+    resume, is_existing = ingest_file(db, path)
 
-    # Prevent infinite loops on restart:
-    # If the resume is already processed successfully, skip it.
-    if resume.status == "ready":
-        print(f"[Pipeline] ⏭️ Skipping {path.name} - already READY.")
+    # Step 2: Absolute Skip
+    # If the file is in the DB, we assume it's either done or it failed previously.
+    # In both cases, we do NOT touch it again to prevent infinite loops.
+    if is_existing:
+        # Silent skip to keep logs clean
         return resume
 
-    # If the resume previously failed, do not retry automatically (prevents crash loops).
-    if resume.status == "error":
-        print(f"[Pipeline] ⏭️ Skipping {path.name} - marked as ERROR.")
-        return resume
+    # Step 3: Processing (Only for completely new files)
+    # print(f"[Pipeline] 🚀 New file detected: {path.name}. Starting processing...")
 
-    resume = parse_and_extract(db, resume)
-    resume = chunk_and_embed(db, resume)
-    return resume
+    try:
+        resume = parse_and_extract(db, resume)
+        resume = chunk_and_embed(db, resume)
+        return resume
+    except Exception as e:
+        # If it fails here, it gets marked as ERROR and will be skipped next time.
+        print(f"[Pipeline] ❌ Error: {path.name} -> {str(e)}")
+        # Ensure the error is saved to DB so it becomes "Blacklisted"
+        resume.status = 'error'
+        resume.error_log = str(e)
+        db.commit()
+        raise e
 
 
 def delete_resume(db: Session, resume_id: UUID) -> bool:

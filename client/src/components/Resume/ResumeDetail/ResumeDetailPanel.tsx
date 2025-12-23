@@ -3,6 +3,7 @@
 // Shows Primary years (if provided) and a per-category breakdown (chips).
 // Falls back to legacy yearsOfExperience when primaryYears is null.
 // -----------------------------------------------------------------------------
+import { createPortal } from 'react-dom';
 import { useMemo, type ReactElement, useEffect, useRef } from 'react';
 import { renderAsync } from 'docx-preview';
 import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone';
@@ -144,7 +145,7 @@ export const ResumeDetailPanel = ({
     return sortedEntries.map(([source, skills]) => [sourceLabels[source] || source, skills] as const);
   }, [resume?.skills]);
 
-  return (
+  return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <aside className={styles.panel} aria-label="Resume details" onClick={(e) => e.stopPropagation()}>
         {isLoading ? (
@@ -375,6 +376,7 @@ export const ResumeDetailPanel = ({
           </div>
         )}
       </aside>
-    </div>
+    </div>,
+    document.body
   );
 };

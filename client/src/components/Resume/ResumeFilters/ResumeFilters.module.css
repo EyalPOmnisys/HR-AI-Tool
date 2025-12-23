@@ -1,80 +1,129 @@
 .container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filterGroup {
   position: relative;
 }
 
 .filterButton {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background-color: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  color: #475569;
-  font-size: 0.95rem;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #44546f;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .filterButton:hover {
-  background-color: #f8fafc;
-  border-color: #cbd5e1;
-  color: #1e293b;
+  background-color: #f1f2f4;
 }
 
 .filterButton.active {
-  background-color: #eff6ff;
-  border-color: #3b82f6;
-  color: #2563eb;
+  background-color: #e9f2ff;
+  color: #0052cc;
+}
+
+.filterButton.hasValue {
+  background-color: #e9f2ff;
+  color: #0052cc;
+  font-weight: 600;
 }
 
 .popover {
   position: absolute;
   top: 100%;
-  right: 0;
-  margin-top: 8px;
+  left: 0;
+  margin-top: 4px;
   width: 300px;
   background-color: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  box-shadow: 0 8px 16px -4px rgba(9, 30, 66, 0.25), 0 0 0 1px rgba(9, 30, 66, 0.08);
   z-index: 50;
   padding: 16px;
 }
 
-.section {
-  margin-bottom: 16px;
+.clearButton {
+  color: #44546f;
+  font-size: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 12px;
 }
 
-.label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #334155;
+.clearButton:hover {
+  text-decoration: underline;
+  color: #0052cc;
+}
+
+.inputGroup {
+  display: flex;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
 .input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  color: #1e293b;
+  padding: 8px;
+  border: 2px solid #dfe1e6;
+  border-radius: 3px;
+  font-size: 14px;
   transition: border-color 0.2s;
+}
+
+.inputGroup .input {
+  flex: 1;
 }
 
 .input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  border-color: #4c9aff;
+}
+
+.addButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  background-color: #f1f2f4;
+  border: 1px solid #dfe1e6;
+  border-radius: 3px;
+  color: #44546f;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.addButton:hover:not(:disabled) {
+  background-color: #e9f2ff;
+  color: #0052cc;
+  border-color: #0052cc;
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
 }
 
 .skillsContainer {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: 8px;
 }
 
@@ -82,79 +131,35 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  background-color: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 4px;
-  color: #1e40af;
-  font-size: 0.8rem;
+  padding: 2px 8px;
+  background-color: #e9f2ff;
+  color: #0052cc;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .removeSkill {
-  background: none;
-  border: none;
-  color: #60a5fa;
-  cursor: pointer;
-  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: none;
+  border: none;
+  color: #0052cc;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.7;
 }
 
 .removeSkill:hover {
-  color: #2563eb;
+  opacity: 1;
 }
 
-.row {
-  display: flex;
-  gap: 12px;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #f1f5f9;
-}
-
-.button {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.clearButton {
-  background-color: transparent;
-  border: 1px solid transparent;
-  color: #64748b;
-}
-
-.clearButton:hover {
-  color: #334155;
-  background-color: #f1f5f9;
-}
-
-.applyButton {
-  background-color: #2563eb;
-  border: 1px solid #2563eb;
-  color: #fff;
-}
-
-.applyButton:hover {
-  background-color: #1d4ed8;
-  border-color: #1d4ed8;
-}
-
-.overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #44546f;
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }

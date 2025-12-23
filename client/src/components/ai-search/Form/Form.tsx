@@ -8,7 +8,6 @@ type Props = {
   selectedJobId: string;
   desiredCandidates: number;
   selectedJob?: ApiJob;
-  isLoadingJobs: boolean;
   error?: string | null;
   onJobChange: (e: ChangeEvent<HTMLSelectElement>) => void;
   onCandidateChange: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -39,7 +38,6 @@ export default function Form({
   selectedJobId,
   desiredCandidates,
   selectedJob,
-  isLoadingJobs,
   error,
   onJobChange,
   onCandidateChange,
@@ -75,11 +73,8 @@ export default function Form({
                   className={styles.control}
                   value={selectedJobId}
                   onChange={onJobChange}
-                  disabled={isLoadingJobs}
                 >
-                  {isLoadingJobs ? (
-                    <option>Loading jobs...</option>
-                  ) : jobs.length === 0 ? (
+                  {jobs.length === 0 ? (
                     <option>No jobs available</option>
                   ) : (
                     jobs.map((job) => (

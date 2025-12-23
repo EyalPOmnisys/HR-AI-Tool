@@ -10,7 +10,10 @@ import type {
   ResumeDetail,
   ResumeListResponse,
   ResumeSummary,
+  ResumeScoringRequest,
+  ResumeScoringResponse,
 } from '../types/resume';
+import type { FilterState } from '../components/Resume/ResumeFilters/ResumeFilters';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
 
@@ -114,4 +117,42 @@ export async function deleteResume(resumeId: string): Promise<void> {
     const text = await res.text().catch(() => '');
     throw new Error(`Failed to delete resume (${res.status}): ${text}`);
   }
+}
+
+export async function analyzeSearchQuery(query: string): Promise<FilterState> {
+  const res = await fetch(`${API_URL}/resumes/search/analyze?query=${encodeURIComponent(query)}`, {
+    method: 'POST',
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to analyze search query (${res.status}): ${text}`);
+  }
+
+  const data = await res.json();
+  
+  return {
+    profession: data.profession || [],
+    minExperience: data.min_experience?.toString() || '',
+    maxExperience: data.max_experience?.toString() || '',
+    skills: data.skills || [],
+    freeText: data.free_text ? [data.free_text] : []
+  };
+}
+
+export async function scoreResumes(request: ResumeScoringRequest): Promise<ResumeScoringResponse> {
+  const res = await fetch(`${API_URL}/resumes/search/score`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to score resumes (${res.status}): ${text}`);
+  }
+
+  return res.json();
 }

@@ -338,3 +338,46 @@
     font-size: 0.95rem;
   }
 }
+
+/* Skeleton Styles */
+.skeletonCard {
+  pointer-events: none;
+  border-color: #eee;
+}
+
+.skeletonBox,
+.skeletonText,
+.skeletonBadge {
+  background-color: #f0f2f5;
+  border-radius: 4px;
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.skeletonBox {
+  width: 48px;
+  height: 48px; 
+  border-radius: 12px;
+}
+
+.skeletonText {
+  height: 16px;
+  border-radius: 4px;
+}
+
+.skeletonBadge {
+  width: 60px;
+  height: 24px;
+  border-radius: 12px;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}

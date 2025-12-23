@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
 import { JobCard } from '../../components/job/JobCard/JobCard'
+import { JobCardSkeleton } from '../../components/job/JobCard/JobCardSkeleton'
 import { JobDetailsModal } from '../../components/job/JobDetailsModal/JobDetailsModal'
 import { JobFormModal } from '../../components/job/JobFormModal/JobFormModal'
 import { SearchInput } from '../../components/common/SearchInput/SearchInput'
+import { ConfirmationModal } from '../../components/common/ConfirmationModal/ConfirmationModal'
 import type { Job, JobDraft } from '../../types/job'
 import styles from './JobBoard.module.css'
 import { createJob, listJobs, updateJob, deleteJob as deleteJobApi, getJob } from '../../services/jobs'
@@ -32,6 +34,7 @@ export const JobBoard = (): ReactElement => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeJobId, setActiveJobId] = useState<string | null>(null) // For full page details
+  const [jobToDelete, setJobToDelete] = useState<Job | null>(null)
 
   // simple in-flight polling refs to avoid multiple intervals
   const pollingMapRef = useRef<Record<string, number>>({})
@@ -99,13 +102,23 @@ export const JobBoard = (): ReactElement => {
     setActiveJobId(job.id)
   }
 
-  const handleDelete = async (jobId: string) => {
+  const handleDeleteClick = (jobId: string) => {
+    const job = jobs.find((j) => j.id === jobId)
+    if (job) {
+      setJobToDelete(job)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!jobToDelete) return
+
     try {
-      await deleteJobApi(jobId)
-      setJobs((prev) => prev.filter((job) => job.id !== jobId))
-      if (detailsJobId === jobId) {
+      await deleteJobApi(jobToDelete.id)
+      setJobs((prev) => prev.filter((job) => job.id !== jobToDelete.id))
+      if (detailsJobId === jobToDelete.id) {
         handleCloseDetails()
       }
+      setJobToDelete(null)
     } catch (error) {
       console.error('Failed to delete job:', error)
       alert('Failed to delete job. Please try again.')
@@ -220,9 +233,10 @@ export const JobBoard = (): ReactElement => {
 
       <section className={styles.board}>
         {isLoading ? (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>⏳</div>
-            <h3>Loading jobs...</h3>
+          <div className={styles.grid}>
+            {Array.from({ length: 6 }).map((_, index) => (
+              <JobCardSkeleton key={index} />
+            ))}
           </div>
         ) : jobs.length === 0 ? (
           <div className={styles.emptyState}>
@@ -246,7 +260,7 @@ export const JobBoard = (): ReactElement => {
                 key={job.id}
                 job={job}
                 onEdit={handleEditClick}
-                onDelete={handleDelete}
+                onDelete={handleDeleteClick}
                 onOpen={handleCardOpen}
               />
             ))}
@@ -267,7 +281,17 @@ export const JobBoard = (): ReactElement => {
         job={selectedJob}
         onClose={handleCloseDetails}
         onEdit={handleEditClick}
-        onDelete={handleDelete}
+        onDelete={handleDeleteClick}
+      />
+
+      <ConfirmationModal
+        isOpen={!!jobToDelete}
+        title="Delete Job"
+        message={`Are you sure you want to delete ${jobToDelete?.title}? This action cannot be undone.`}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setJobToDelete(null)}
+        confirmLabel="Delete"
+        isDangerous
       />
     </div>
   )

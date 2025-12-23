@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Set
+from typing import Set, List
 from watchdog.observers.polling import PollingObserver as Observer
 from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
 
 from app.db.base import SessionLocal
+from app.models.resume import Resume
 from app.services.resumes import ingestion_pipeline as resume_service
 
 # Resolve /app/data/resumes inside container
@@ -71,10 +72,15 @@ class _EventHandler(FileSystemEventHandler):
 
             db = SessionLocal()
             try:
+                # print(f"[Watcher] ⏳ Processing started: {path.name}")
                 resume = resume_service.run_full_ingestion(db, path)
-                print(f"[Watcher] ✅ processed resume: {resume.id} ({path.name})")
+                if resume.status == 'ready':
+                    print(f"[Watcher] ✅ Success: {path.name}")
+                elif resume.status == 'error':
+                    print(f"[Watcher] ❌ Failed: {path.name}")
+                # Else it was skipped (silent)
             except Exception as e:
-                print(f"[Watcher] ❌ error processing {path.name}: {e}")
+                print(f"[Watcher] 💥 Exception: {path.name} - {e}")
             finally:
                 db.close()
         finally:
@@ -88,20 +94,111 @@ class _EventHandler(FileSystemEventHandler):
             _release()
 
 
+def _reset_stuck_jobs():
+    """
+    Self-Healing: Detects jobs that were interrupted by a server crash.
+    ONE STRIKE POLICY: Mark them as ERROR (Blacklist) to prevent infinite loops.
+    """
+    print("----------------------------------------------------------------")
+    print("[Watcher] 🧹 STEP 1: Self-Healing Cleanup (One Strike Policy)")
+    print("----------------------------------------------------------------")
+    db = SessionLocal()
+    try:
+        # Find resumes that are stuck in active states
+        # We include 'processing', 'extracting', 'parsing', 'embedding' or None
+        stuck_resumes = db.query(Resume).filter(
+            Resume.status.in_(['processing', 'extracting', 'parsing', 'embedding']) | (Resume.status == None)
+        ).all()
+
+        if stuck_resumes:
+            print(f"[Watcher] ⚠️  Found {len(stuck_resumes)} stuck jobs from previous runs.")
+            for resume in stuck_resumes:
+                print(f"[Watcher] 💀 Marking stuck file as ERROR (Blacklist): {resume.file_path}")
+                # Move straight to error. Do not pass Go. Do not collect $200.
+                resume.status = 'error'
+                resume.error_log = "System crash or interruption during processing. File blacklisted."
+            
+            db.commit()
+            print(f"[Watcher] ✅ Cleanup complete. {len(stuck_resumes)} jobs blacklisted.")
+        else:
+            print("[Watcher] ✅ No stuck jobs found. System is clean.")
+            
+    except Exception as e:
+        print(f"[Watcher] ❌ Error during startup cleanup: {e}")
+    finally:
+        db.close()
+
+
 def main():
-    print(f"[Watcher] 👀 Watching directory: {RESUME_DIR}")
+    print("================================================================")
+    print(f"[Watcher] 👀 STARTING RESUME WATCHER")
+    print(f"[Watcher] 📂 Directory: {RESUME_DIR}")
+    print("================================================================")
+    
+    # 1. Run Self-Healing Cleanup FIRST
+    _reset_stuck_jobs()
+
     event_handler = _EventHandler()
 
-    # Scan for existing files on startup
-    print(f"[Watcher] 🔎 Scanning for existing files...")
-    existing_files = [
+    # ---------------------------------------------------------
+    # 2. SMART STARTUP SCAN
+    # ---------------------------------------------------------
+    print("\n----------------------------------------------------------------")
+    print("[Watcher] 🧠 STEP 2: Smart Startup Scan")
+    print("----------------------------------------------------------------")
+    print(f"[Watcher] 📥 Loading known filenames from Database...")
+    
+    db = SessionLocal()
+    known_filenames = set()
+    try:
+        # Fetch only file paths
+        results = db.query(Resume.file_path).all()
+        for r in results:
+            if r.file_path:
+                known_filenames.add(Path(r.file_path).name)
+    finally:
+        db.close()
+
+    print(f"[Watcher] ℹ️  Database contains {len(known_filenames)} known files.")
+    print(f"[Watcher] 🔎 Scanning physical directory for new files...")
+
+    existing_files_on_disk = [
         p for p in RESUME_DIR.iterdir() 
         if p.is_file() and not event_handler._is_ignorable(p)
     ]
-    print(f"[Watcher] Found {len(existing_files)} existing files. Processing...")
+
+    print(f"[Watcher] ℹ️  Found {len(existing_files_on_disk)} files in directory.")
+
+    # Phase A: Identify New Files (No Processing yet)
+    new_files_queue: List[Path] = []
+    skipped_count = 0
+
+    for file_path in existing_files_on_disk:
+        if file_path.name in known_filenames:
+            skipped_count += 1
+        else:
+            new_files_queue.append(file_path)
+
+    # Phase B: Process New Files with Progress Bar
+    total_new = len(new_files_queue)
     
-    for file_path in existing_files:
-        event_handler._process(file_path)
+    print(f"[Watcher] 📊 Scan Result: {skipped_count} existing (skipped), {total_new} NEW files to process.")
+
+    if total_new > 0:
+        print(f"[Watcher] 🚀 Starting batch processing of {total_new} files...")
+        for i, file_path in enumerate(new_files_queue, 1):
+            remaining = total_new - i
+            # print(f"[Watcher] ▶️  Batch Progress: Processing {i}/{total_new} (Remaining: {remaining}) >> {file_path.name}")
+            if i % 10 == 0:
+                print(f"[Watcher] 📊 Progress: {i}/{total_new} files scanned...")
+            event_handler._process(file_path)
+    else:
+        print("[Watcher] ✨ No new files to process.")
+
+    print(f"[Watcher] ✅ Smart Scan Complete.")
+    print("==================================================")
+    print("[Watcher] 👂 Listening for new file events...")
+    # ---------------------------------------------------------
 
     observer = Observer(timeout=1.0)
     observer.schedule(event_handler, str(RESUME_DIR), recursive=False)

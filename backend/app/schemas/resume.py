@@ -45,6 +45,14 @@ class ResumeListOut(BaseModel):
     total: int
 
 
+class ResumeSearchAnalysis(BaseModel):
+    profession: list[str] = Field(default_factory=list)
+    min_experience: Optional[int] = None
+    max_experience: Optional[int] = None
+    skills: list[str] = Field(default_factory=list)
+    free_text: Optional[str] = None
+
+
 class ResumeContactItem(BaseModel):
     type: str
     label: Optional[str] = None
@@ -90,3 +98,27 @@ class ResumeDetail(BaseModel):
     updated_at: datetime
     years_by_category: Dict[str, float] = Field(default_factory=dict)
     primary_years: Optional[float] = Field(None, ge=0)
+
+
+class ResumeScore(BaseModel):
+    id: UUID
+    score: int = Field(..., ge=0, le=100)
+    reason: str
+
+
+class ResumeScoringCandidate(BaseModel):
+    id: UUID
+    name: Optional[str] = None
+    profession: Optional[str] = None
+    summary: Optional[str] = None
+    years_of_experience: Optional[float] = None
+    skills: list[SkillItem] = Field(default_factory=list)
+
+
+class ResumeScoringRequest(BaseModel):
+    query: str
+    candidates: list[ResumeScoringCandidate]
+
+
+class ResumeScoringResponse(BaseModel):
+    scores: list[ResumeScore]

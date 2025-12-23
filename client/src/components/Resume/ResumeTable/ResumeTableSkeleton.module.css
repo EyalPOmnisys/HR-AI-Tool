@@ -1,0 +1,43 @@
+.skeletonRow {
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+.skeletonCell {
+  height: 20px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.skeletonName {
+  width: 150px;
+}
+
+.skeletonProfession {
+  width: 120px;
+}
+
+.skeletonExperience {
+  width: 100px;
+}
+
+.skeletonDate {
+  width: 80px;
+}
+
+.skeletonActions {
+  width: 60px;
+  margin-left: auto;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
