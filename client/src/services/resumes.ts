@@ -10,8 +10,6 @@ import type {
   ResumeDetail,
   ResumeListResponse,
   ResumeSummary,
-  ResumeScoringRequest,
-  ResumeScoringResponse,
 } from '../types/resume';
 import type { FilterState } from '../components/Resume/ResumeFilters/ResumeFilters';
 
@@ -140,19 +138,3 @@ export async function analyzeSearchQuery(query: string): Promise<FilterState> {
   };
 }
 
-export async function scoreResumes(request: ResumeScoringRequest): Promise<ResumeScoringResponse> {
-  const res = await fetch(`${API_URL}/resumes/search/score`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to score resumes (${res.status}): ${text}`);
-  }
-
-  return res.json();
-}

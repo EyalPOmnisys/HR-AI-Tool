@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.base import get_db
-from app.schemas.resume import ResumeDetail, ResumeListOut, ResumeSummary, ResumeSearchAnalysis, ResumeScoringRequest, ResumeScoringResponse
+from app.schemas.resume import ResumeDetail, ResumeListOut, ResumeSummary, ResumeSearchAnalysis
 from app.services.resumes import ingestion_pipeline as resume_service
 from app.services.resumes import search_service
 
@@ -28,14 +28,6 @@ def analyze_search(query: str = Query(..., min_length=1)):
     Analyze a natural language search query and return structured filters.
     """
     return search_service.analyze_search_query(query)
-
-
-@router.post("/search/score", response_model=ResumeScoringResponse)
-def score_resumes(request: ResumeScoringRequest):
-    """
-    Score a list of resumes against a search query.
-    """
-    return search_service.score_resumes(request)
 
 
 @router.get("", response_model=ResumeListOut)

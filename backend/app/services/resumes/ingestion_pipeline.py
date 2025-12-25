@@ -74,43 +74,66 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
         resume_repo.set_status(db, resume, status="extracting")
         resume = extract_structured(db, resume)
 
-        # --- DUPLICATE CHECK ---
+        # --- DUPLICATE CHECK (ROBUST) ---
         extraction = resume.extraction_json or {}
         person = extraction.get("person", {})
         
-        emails = person.get("emails", [])
-        email_val = emails[0].get("value") if emails and isinstance(emails, list) and len(emails) > 0 and isinstance(emails[0], dict) else None
+        # Collect ALL emails and phones to check
+        emails_to_check = []
+        if person.get("emails") and isinstance(person["emails"], list):
+            for em in person["emails"]:
+                if isinstance(em, dict) and em.get("value"):
+                    emails_to_check.append(em.get("value"))
+
+        phones_to_check = []
+        if person.get("phones") and isinstance(person["phones"], list):
+            for ph in person["phones"]:
+                if isinstance(ph, dict) and ph.get("value"):
+                    phones_to_check.append(ph.get("value"))
         
-        phones = person.get("phones", [])
-        phone_val = phones[0].get("value") if phones and isinstance(phones, list) and len(phones) > 0 and isinstance(phones[0], dict) else None
+        duplicate = None
         
-        if email_val or phone_val:
-            duplicate = resume_repo.find_duplicate(db, email_val, phone_val, exclude_id=resume.id)
+        # 1. Check duplicates by Email
+        for email in emails_to_check:
+            duplicate = resume_repo.find_duplicate(db, email=email, phone=None, exclude_id=resume.id)
             if duplicate:
-                print(f"--- DUPLICATE FOUND: Merging {resume.id} into {duplicate.id} ---")
-                # Capture data from new resume
-                new_path = resume.file_path
-                new_hash = resume.content_hash
-                new_text = resume.parsed_text
-                new_json = resume.extraction_json
-                new_mime = resume.mime_type
-                new_size = resume.file_size
-                new_id = resume.id
+                break 
+        
+        # 2. Check duplicates by Phone (if no email match)
+        if not duplicate:
+            for phone in phones_to_check:
+                duplicate = resume_repo.find_duplicate(db, email=None, phone=phone, exclude_id=resume.id)
+                if duplicate:
+                    break
+
+        if duplicate:
+            print(f"--- DUPLICATE FOUND: Marking {resume.file_path} as duplicate of Master {duplicate.id} ---")
+            
+            # SAFETY CHECK: Only update Master if new data is valid and has content
+            new_person = extraction.get("person", {})
+            if new_person.get("name") and (new_person.get("emails") or new_person.get("phones")):
+                # Update Master with fresh data
+                duplicate.extraction_json = resume.extraction_json
+                duplicate.parsed_text = resume.parsed_text
                 
-                # Delete new resume to free up the content_hash
-                resume_repo.delete_resume(db, new_id)
-                
-                # Update old resume
-                resume = resume_repo.update_resume_content(
-                    db, 
-                    duplicate, 
-                    file_path=new_path,
-                    content_hash=new_hash,
-                    parsed_text=new_text,
-                    extraction_json=new_json,
-                    mime_type=new_mime,
-                    file_size=new_size
-                )
+                # FIX 1: Revive Master if it was dead (Error -> Ready)
+                if duplicate.status == 'error':
+                    duplicate.status = 'ready' # Or 'parsed'
+                    
+                db.add(duplicate)
+            else:
+                print(f"--- SKIP UPDATE: New file seems empty/partial. Keeping Master {duplicate.id} data intact. ---")
+            
+            # Mark NEW record as DUPLICATE (Prevent Loop)
+            resume_repo.set_status(
+                db, 
+                resume, 
+                status="duplicate", 
+                error=f"Duplicate of Master ID {duplicate.id}"
+            )
+            
+            db.commit()
+            return resume
         # -----------------------
 
         # Validate extraction quality
@@ -336,6 +359,10 @@ def _extract_skills(extraction: dict[str, Any]) -> list[dict[str, Any]]:
             if not name:
                 continue
             
+            # Ensure stored skills are Title Cased if they are all lowercase
+            if name.islower() and len(name) > 1:
+                name = name.title()
+
             key = name.lower()
             
             # Determine source and weight based on whether skill appears in bullets
@@ -363,6 +390,33 @@ def _extract_skills(extraction: dict[str, Any]) -> list[dict[str, Any]]:
                     "category": None
                 }
     
+    # NEW: Scan Education for explicit skills/tech tags if they exist in the raw JSON
+    # This ensures skills from "Education" are captured even if missed in the global list
+    for edu in extraction.get("education") or []:
+        # Check for 'tech', 'skills', or 'courses' lists in education entries
+        # (The raw JSON from LLM might contain these fields even if not in the main schema)
+        edu_skills = (edu.get("tech") or []) + (edu.get("skills") or []) + (edu.get("courses") or [])
+        
+        for s in edu_skills:
+            if not isinstance(s, str): continue
+            
+            name = _clean(s)
+            if not name: continue
+
+            if name.islower() and len(name) > 1:
+                name = name.title()
+            
+            key = name.lower()
+            
+            # Only add if not already found in work experience (which has higher priority)
+            if key not in seen:
+                seen[key] = {
+                    "name": name,
+                    "source": "education",
+                    "weight": 0.6, # Academic skills get standard weight
+                    "category": "education"
+                }
+
     # Third pass: handle extraction.skills (if provided by LLM or deterministic extraction)
     # Check each skill against bullets to determine if it's from work experience
     for s in extraction.get("skills") or []:
@@ -371,6 +425,10 @@ def _extract_skills(extraction: dict[str, Any]) -> list[dict[str, Any]]:
             if not name:
                 continue
             
+            # Ensure stored skills are Title Cased
+            if name.islower() and len(name) > 1:
+                name = name.title()
+
             # Check if this skill appears in work experience bullets
             appears_in_work = skill_in_work_experience(name)
             
@@ -407,6 +465,10 @@ def _extract_skills(extraction: dict[str, Any]) -> list[dict[str, Any]]:
             # Legacy format: plain string - check if it appears in work experience
             name = _clean(s)
             if name:
+                # Ensure stored skills are Title Cased
+                if name.islower() and len(name) > 1:
+                    name = name.title()
+
                 key = name.lower()
                 
                 # Check if skill appears in work experience
@@ -506,6 +568,10 @@ def _resume_to_summary(resume: Resume) -> dict[str, Any]:
     if primary_years is None and isinstance(totals_by_category, dict):
         primary_years = totals_by_category.get("tech")
 
+    # Extract skills for summary list (names only to keep payload light)
+    skills_data = _extract_skills(extraction)
+    skill_names = [s["name"] for s in skills_data]
+
     return {
         "id": resume.id,
         "name": _clean(person.get("name")) or _infer_name_from_path(resume.file_path),
@@ -514,6 +580,8 @@ def _resume_to_summary(resume: Resume) -> dict[str, Any]:
         "resume_url": f"/resumes/{resume.id}/file",
         # Carry along years_by_category for consumers that list summaries (optional)
         "years_by_category": totals_by_category or {},
+        "skills": skill_names,
+        "summary": extraction.get("summary"),
     }
 
 
@@ -747,7 +815,21 @@ def run_full_ingestion(db: Session, path: Path) -> Resume:
 
     try:
         resume = parse_and_extract(db, resume)
-        resume = chunk_and_embed(db, resume)
+        
+        # EDGE CASE FIX: If it's a duplicate, STOP HERE.
+        if resume.status == "duplicate":
+            return resume
+            
+        # --- SKIP EMBEDDING (Optimization) ---
+        # The matching logic uses structured JSON data, not vector search.
+        # Skipping this saves API costs and time.
+        # resume = chunk_and_embed(db, resume)
+        
+        # FIX 2: Only mark as READY if it was successfully parsed.
+        # If parse_and_extract marked it as 'warning' (e.g. no name found), keep it as 'warning'.
+        if resume.status == "parsed":
+            resume_repo.set_status(db, resume, status="ready")
+        
         return resume
     except Exception as e:
         # If it fails here, it gets marked as ERROR and will be skipped next time.

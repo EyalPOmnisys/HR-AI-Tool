@@ -1,14 +1,12 @@
 import { useState, useRef, useEffect, type ReactElement, type MouseEvent } from 'react'
-import { FaTrash, FaEye, FaChevronDown, FaSpinner, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
-import type { ResumeSummary, ResumeScore } from '../../../types/resume'
+import { FaTrash, FaEye, FaChevronDown, FaChevronLeft, FaChevronRight } from 'react-icons/fa'
+import type { ResumeSummary } from '../../../types/resume'
 import styles from './ResumeTable.module.css'
 
 export type TimeFilter = 'all' | 'today' | 'week' | 'month'
 
 interface ResumeTableProps {
   resumes: (ResumeSummary & { createdAt?: string })[]
-  scores?: Record<string, ResumeScore>
-  isScoring?: boolean
   selectedResumeId: string | null
   onSelect: (resumeId: string) => void
   onDelete: (resume: ResumeSummary, e: MouseEvent) => void
@@ -21,8 +19,6 @@ interface ResumeTableProps {
 
 export const ResumeTable = ({
   resumes,
-  scores,
-  isScoring,
   selectedResumeId,
   onSelect,
   onDelete,
@@ -90,8 +86,6 @@ export const ResumeTable = ({
     return resume.yearsOfExperience ? `${resume.yearsOfExperience} years` : '-'
   }
 
-  const showScoring = isScoring || (scores && Object.keys(scores).length > 0)
-
   const getPageNumbers = () => {
     const pages = []
     let start = Math.max(1, currentPage - 2)
@@ -113,12 +107,6 @@ export const ResumeTable = ({
         <thead>
           <tr>
             <th>Name</th>
-            {showScoring && (
-              <>
-                <th>Score</th>
-                <th>Reason</th>
-              </>
-            )}
             <th>Profession</th>
             <th>Experience</th>
             <th>
@@ -188,39 +176,6 @@ export const ResumeTable = ({
                     <span className={styles.nameText}>{resume.name || 'Unnamed'}</span>
                   </div>
                 </td>
-                {showScoring && (
-                  <>
-                    <td>
-                      {scores && scores[resume.id] ? (
-                        <div 
-                          title={scores[resume.id].reason}
-                          style={{
-                            backgroundColor: scores[resume.id].score >= 80 ? '#e6fffa' : scores[resume.id].score >= 50 ? '#fffaf0' : '#fff5f5',
-                            color: scores[resume.id].score >= 80 ? '#2c7a7b' : scores[resume.id].score >= 50 ? '#c05621' : '#c53030',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontWeight: 'bold',
-                            display: 'inline-block',
-                            fontSize: '0.85rem'
-                          }}
-                        >
-                          {scores[resume.id].score}%
-                        </div>
-                      ) : isScoring ? (
-                        <FaSpinner className={styles.spinner} title="Calculating score..." />
-                      ) : '-'}
-                    </td>
-                    <td className={styles.reasonCell}>
-                      {scores && scores[resume.id] ? (
-                        <span title={scores[resume.id].reason}>
-                          {scores[resume.id].reason}
-                        </span>
-                      ) : isScoring ? (
-                        <FaSpinner className={styles.spinner} title="Analyzing..." />
-                      ) : '-'}
-                    </td>
-                  </>
-                )}
                 <td>{resume.profession || '-'}</td>
                 <td>{renderExperience(resume)}</td>
                 <td>{date}</td>

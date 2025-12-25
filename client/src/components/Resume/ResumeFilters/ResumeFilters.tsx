@@ -2,6 +2,16 @@ import { useState, useRef, useEffect, type ReactElement, type KeyboardEvent } fr
 import { FaChevronDown, FaTimes, FaPlus } from 'react-icons/fa'
 import styles from './ResumeFilters.module.css'
 
+const COMMON_PROFESSIONS = [
+  "Software Engineer", "Product Manager", "Data Scientist", "DevOps Engineer", "QA Engineer", 
+  "Full Stack Developer", "Frontend Developer", "Backend Developer"
+]
+
+const COMMON_SKILLS = [
+  "Python", "JavaScript", "React", "Node.js", "SQL", 
+  "Docker", "AWS", "TypeScript", "Java", "C++"
+]
+
 export interface FilterState {
   profession: string[]
   minExperience: string
@@ -14,9 +24,13 @@ interface ResumeFiltersProps {
   onFilterChange: (filters: FilterState) => void
   initialFilters?: FilterState
   className?: string
+  availableOptions?: {
+    skills?: string[]
+    professions?: string[]
+  }
 }
 
-export const ResumeFilters = ({ onFilterChange, initialFilters, className }: ResumeFiltersProps): ReactElement => {
+export const ResumeFilters = ({ onFilterChange, initialFilters, className, availableOptions }: ResumeFiltersProps): ReactElement => {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>(initialFilters || {
     profession: [],
@@ -29,7 +43,58 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className }: Res
   const [professionInput, setProfessionInput] = useState('')
   const [keywordInput, setKeywordInput] = useState('')
 
+  const allProfessions = availableOptions?.professions || COMMON_PROFESSIONS
+  const allSkills = availableOptions?.skills || COMMON_SKILLS
+
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const getSuggestions = (list: string[], input: string, currentSelected: string[]) => {
+    const normalizedInput = input.toLowerCase().trim()
+    
+    // Filter out already selected items
+    const candidates = list.filter(item => !currentSelected.includes(item))
+
+    if (!normalizedInput) {
+      // If no input, return top 5 common items
+      return candidates.slice(0, 5)
+    }
+
+    // If input exists, filter by input
+    return candidates.filter(item => 
+      item.toLowerCase().includes(normalizedInput)
+    )
+  }
+
+  const renderSuggestions = (
+    list: string[], 
+    input: string, 
+    selected: string[], 
+    onSelect: (val: string) => void
+  ) => {
+    const suggestions = getSuggestions(list, input, selected)
+    
+    if (suggestions.length === 0) return null
+
+    return (
+      <>
+        <span className={styles.suggestionLabel}>
+          {input ? 'Suggestions' : 'Common'}
+        </span>
+        <div className={styles.suggestionsList}>
+          {suggestions.map(item => (
+            <div 
+              key={item} 
+              className={styles.suggestionItem}
+              onClick={() => onSelect(item)}
+            >
+              {item}
+              {input && <FaPlus size={10} style={{ opacity: 0.5 }} />}
+            </div>
+          ))}
+        </div>
+      </>
+    )
+  }
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -95,12 +160,16 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className }: Res
     updateFilters(newFilters)
   }
 
-  const addSkill = () => {
-    if (skillInput.trim()) {
-      if (!filters.skills.includes(skillInput.trim())) {
+  const addSkill = (skillToAdd?: string) => {
+    let val = skillToAdd || skillInput.trim()
+    if (val) {
+      // Normalize skill to Title Case (e.g. "python" -> "Python") to match DB
+      val = val.charAt(0).toUpperCase() + val.slice(1);
+
+      if (!filters.skills.includes(val)) {
         const newFilters = {
           ...filters,
-          skills: [...filters.skills, skillInput.trim()]
+          skills: [...filters.skills, val]
         }
         updateFilters(newFilters)
       }
@@ -123,12 +192,13 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className }: Res
     updateFilters(newFilters)
   }
 
-  const addProfession = () => {
-    if (professionInput.trim()) {
-      if (!filters.profession.includes(professionInput.trim())) {
+  const addProfession = (profToAdd?: string) => {
+    const val = profToAdd || professionInput.trim()
+    if (val) {
+      if (!filters.profession.includes(val)) {
         const newFilters = {
           ...filters,
-          profession: [...filters.profession, professionInput.trim()]
+          profession: [...filters.profession, val]
         }
         updateFilters(newFilters)
       }
@@ -190,12 +260,16 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className }: Res
               />
               <button 
                 className={styles.addButton} 
-                onClick={addProfession}
+                onClick={() => addProfession()}
                 disabled={!professionInput.trim()}
               >
                 <FaPlus />
               </button>
             </div>
+            
+            {/* Suggestions Area */}
+            {renderSuggestions(allProfessions, professionInput, filters.profession, addProfession)}
+
             <div className={styles.skillsContainer}>
               {filters.profession.map(prof => (
                 <span key={prof} className={styles.skillTag}>
@@ -268,12 +342,16 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className }: Res
               />
               <button 
                 className={styles.addButton} 
-                onClick={addSkill}
+                onClick={() => addSkill()}
                 disabled={!skillInput.trim()}
               >
                 <FaPlus />
               </button>
             </div>
+
+            {/* Suggestions Area */}
+            {renderSuggestions(allSkills, skillInput, filters.skills, addSkill)}
+
             <div className={styles.skillsContainer}>
               {filters.skills.map(skill => (
                 <span key={skill} className={styles.skillTag}>

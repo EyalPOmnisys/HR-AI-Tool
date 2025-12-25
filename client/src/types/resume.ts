@@ -124,27 +124,3 @@ export type ResumeDetail = {
   yearsByCategory: Record<string, number>;
   primaryYears: number | null;
 };
-
-export type ResumeScore = {
-  id: string;
-  score: number;
-  reason: string;
-};
-
-export type ResumeScoringCandidate = {
-  id: string;
-  name: string | null;
-  profession: string | null;
-  summary: string | null;
-  years_of_experience: number | null;
-  skills: SkillItem[];
-};
-
-export type ResumeScoringRequest = {
-  query: string;
-  candidates: ResumeScoringCandidate[];
-};
-
-export type ResumeScoringResponse = {
-  scores: ResumeScore[];
-};

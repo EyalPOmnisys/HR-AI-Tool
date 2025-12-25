@@ -38,6 +38,8 @@ class ResumeSummary(BaseModel):
     resume_url: str
     # New: per-category breakdown (optional)
     years_by_category: Dict[str, float] = Field(default_factory=dict)
+    skills: list[str] = Field(default_factory=list)
+    summary: Optional[str] = None
 
 
 class ResumeListOut(BaseModel):
@@ -99,26 +101,3 @@ class ResumeDetail(BaseModel):
     years_by_category: Dict[str, float] = Field(default_factory=dict)
     primary_years: Optional[float] = Field(None, ge=0)
 
-
-class ResumeScore(BaseModel):
-    id: UUID
-    score: int = Field(..., ge=0, le=100)
-    reason: str
-
-
-class ResumeScoringCandidate(BaseModel):
-    id: UUID
-    name: Optional[str] = None
-    profession: Optional[str] = None
-    summary: Optional[str] = None
-    years_of_experience: Optional[float] = None
-    skills: list[SkillItem] = Field(default_factory=list)
-
-
-class ResumeScoringRequest(BaseModel):
-    query: str
-    candidates: list[ResumeScoringCandidate]
-
-
-class ResumeScoringResponse(BaseModel):
-    scores: list[ResumeScore]

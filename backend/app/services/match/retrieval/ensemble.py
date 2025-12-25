@@ -248,34 +248,34 @@ async def search_and_score_candidates(
             
             # === Ensemble Weighted Score ===
             # Weights (tunable):
-            # - Skills: 45% (Technical match) - Increased from 40%
-            # - Title: 30% (Role alignment) - Increased from 25%
+            # - Skills: 35% (Was 45%) - Reduced to avoid "Developer applying for DevOps" false positives
+            # - Title: 40% (Was 30%) - Increased to prioritize professional identity
             # - Experience: 20% (Seniority)
             # - Stability: 5% (Employment stability)
             # - RAG: Removed (was 10%)
             
             final_score = (
-                0.45 * (skills_result.weighted_score / 100) +
-                0.30 * title_score +
+                0.35 * (skills_result.weighted_score / 100) +
+                0.40 * title_score +
                 0.20 * exp_score +
                 0.05 * stability_score
             )
             
             # === RED FLAG: Poor Title Match ===
-            # If title match is below 50%, apply a significant penalty
-            # This indicates the candidate is likely not suitable for the role
-            RED_FLAG_TITLE_THRESHOLD = 0.50  # 50%
-            RED_FLAG_PENALTY = 0.40  # Reduce score by 40% (multiplicative)
+            # If title match is below 60%, apply a significant penalty
+            # Increased threshold from 0.50 to 0.60 to better filter out adjacent roles (e.g. Dev vs DevOps)
+            RED_FLAG_TITLE_THRESHOLD = 0.60
+            RED_FLAG_PENALTY = 0.50  # Reduce score by 50% (was 40%)
             
             if title_score < RED_FLAG_TITLE_THRESHOLD:
                 penalty_amount = final_score * RED_FLAG_PENALTY
                 final_score = final_score * (1.0 - RED_FLAG_PENALTY)
                 logger.info("├─────────────────────────────────────────────────────────────────┤")
-                logger.info(f"│ 🚩 RED FLAG: Poor title match (<50%) - applying {RED_FLAG_PENALTY*100:.0f}% penalty   │")
+                logger.info(f"│ 🚩 RED FLAG: Poor title match (<{RED_FLAG_TITLE_THRESHOLD*100:.0f}%) - applying {RED_FLAG_PENALTY*100:.0f}% penalty   │")
                 logger.info(f"│    Penalty: -{penalty_amount * 100:.1f}% → New score: {final_score * 100:.1f}%            │")
                 logger.info("└─────────────────────────────────────────────────────────────────┘")
             
-            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (45%×Skills + 30%×Title + 20%×Exp + 5%×Stability) │")
+            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (35%×Skills + 40%×Title + 20%×Exp + 5%×Stability) │")
             logger.info("")
             
             # Convert to 0-100 scale
