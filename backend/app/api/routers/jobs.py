@@ -240,10 +240,18 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
 
     # Check if content that requires re-analysis has changed
     should_reanalyze = False
-    if payload.job_description is not None and payload.job_description != job.job_description:
-        should_reanalyze = True
-    if payload.free_text is not None and payload.free_text != job.free_text:
-        should_reanalyze = True
+    
+    # If manual analysis update is provided, we use it and skip AI re-analysis
+    manual_analysis_update = False
+    if payload.analysis_json is not None:
+        job.analysis_json = payload.analysis_json
+        manual_analysis_update = True
+
+    if not manual_analysis_update:
+        if payload.job_description is not None and payload.job_description != job.job_description:
+            should_reanalyze = True
+        if payload.free_text is not None and payload.free_text != job.free_text:
+            should_reanalyze = True
 
     job = job_service.update_job(
         db,
@@ -256,7 +264,8 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
     )
     
     # Update additional_skills in analysis_json if provided
-    if payload.additional_skills is not None:
+    # (Only if we didn't just overwrite the whole analysis_json manually)
+    if payload.additional_skills is not None and not manual_analysis_update:
         # Ensure analysis_json is a dict (it might be None or something else)
         current_analysis = dict(job.analysis_json) if job.analysis_json and isinstance(job.analysis_json, dict) else {}
         current_analysis['additional_skills'] = payload.additional_skills
@@ -272,8 +281,8 @@ def update_job(job_id: UUID, payload: JobUpdate, background: BackgroundTasks, db
         db.commit()
         db.refresh(job)
     
-    # Only trigger background AI analysis if content actually changed
-    if should_reanalyze:
+    # Only trigger background AI analysis if content actually changed AND we didn't manually update analysis
+    if should_reanalyze and not manual_analysis_update:
         background.add_task(_analyze_async, job.id)
         
     return job

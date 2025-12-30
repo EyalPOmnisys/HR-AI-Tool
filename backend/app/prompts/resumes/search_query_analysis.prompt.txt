@@ -5,6 +5,7 @@ The user is searching for resumes. You need to extract the following fields:
 - min_experience: The minimum years of experience required (integer).
 - max_experience: The maximum years of experience mentioned (integer).
 - skills: A list of specific technical skills, tools, or languages mentioned (e.g., "React", "AWS", "SQL").
+- exclude_keywords: A list of keywords or terms that the user explicitly wants to exclude (e.g., "no java", "not junior", "exclude managers"). Extract only the keywords to exclude.
 
 Input Query:
 {query}
@@ -14,7 +15,8 @@ Output JSON format:
     "profession": ["string"],
     "min_experience": int | null,
     "max_experience": int | null,
-    "skills": ["string"]
+    "skills": ["string"],
+    "exclude_keywords": ["string"]
 }}
 
 If a field is not mentioned, return null for integers or empty list/string.

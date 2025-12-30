@@ -18,6 +18,7 @@ export interface FilterState {
   maxExperience: string
   skills: string[]
   freeText: string[]
+  excludeKeywords: string[]
 }
 
 interface ResumeFiltersProps {
@@ -37,11 +38,13 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
     minExperience: '',
     maxExperience: '',
     skills: [],
-    freeText: []
+    freeText: [],
+    excludeKeywords: []
   })
   const [skillInput, setSkillInput] = useState('')
   const [professionInput, setProfessionInput] = useState('')
   const [keywordInput, setKeywordInput] = useState('')
+  const [excludeInput, setExcludeInput] = useState('')
 
   const allProfessions = availableOptions?.professions || COMMON_PROFESSIONS
   const allSkills = availableOptions?.skills || COMMON_SKILLS
@@ -126,7 +129,8 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
       minExperience: '',
       maxExperience: '',
       skills: [],
-      freeText: []
+      freeText: [],
+      excludeKeywords: []
     }
     updateFilters(emptyFilters)
     setActiveDropdown(null)
@@ -156,6 +160,34 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
     const newFilters = {
       ...filters,
       freeText: filters.freeText.filter(k => k !== keywordToRemove)
+    }
+    updateFilters(newFilters)
+  }
+
+  const addExcludeKeyword = () => {
+    if (excludeInput.trim()) {
+      if (!filters.excludeKeywords.includes(excludeInput.trim())) {
+        const newFilters = {
+          ...filters,
+          excludeKeywords: [...filters.excludeKeywords, excludeInput.trim()]
+        }
+        updateFilters(newFilters)
+      }
+      setExcludeInput('')
+    }
+  }
+
+  const handleAddExcludeKeyword = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addExcludeKeyword()
+    }
+  }
+
+  const removeExcludeKeyword = (keywordToRemove: string) => {
+    const newFilters = {
+      ...filters,
+      excludeKeywords: filters.excludeKeywords.filter(k => k !== keywordToRemove)
     }
     updateFilters(newFilters)
   }
@@ -231,7 +263,8 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
     filters.minExperience || 
     filters.maxExperience || 
     filters.skills.length > 0 || 
-    filters.freeText.length > 0
+    filters.freeText.length > 0 ||
+    filters.excludeKeywords.length > 0
   )
 
   return (
@@ -377,7 +410,7 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
         </button>
         {activeDropdown === 'freeText' && (
           <div className={styles.popover}>
-            <label className={styles.label}>Keywords</label>
+            <label className={styles.label}>Must Include</label>
             <div className={styles.inputGroup}>
               <input
                 type="text"
@@ -401,6 +434,51 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
                 <span key={keyword} className={styles.skillTag}>
                   {keyword}
                   <button type="button" className={styles.removeSkill} onClick={() => removeKeyword(keyword)}>
+                    <FaTimes size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Exclude Filter */}
+      <div className={styles.filterGroup}>
+        <button 
+          className={`${styles.filterButton} ${activeDropdown === 'exclude' ? styles.active : ''} ${filters.excludeKeywords.length > 0 ? styles.hasValue : ''}`}
+          onClick={() => toggleDropdown('exclude')}
+          style={filters.excludeKeywords.length > 0 ? { color: '#de350b', backgroundColor: '#ffebe6' } : {}}
+        >
+          Exclude {filters.excludeKeywords.length > 0 && `(${filters.excludeKeywords.length})`}
+          <FaChevronDown size={10} />
+        </button>
+        {activeDropdown === 'exclude' && (
+          <div className={styles.popover}>
+            <label className={styles.label} style={{ color: '#de350b' }}>Must NOT Include</label>
+            <div className={styles.inputGroup}>
+              <input
+                type="text"
+                className={styles.input}
+                placeholder="Word to exclude..."
+                value={excludeInput}
+                onChange={(e) => setExcludeInput(e.target.value)}
+                onKeyDown={handleAddExcludeKeyword}
+                autoFocus
+              />
+              <button 
+                className={styles.addButton} 
+                onClick={addExcludeKeyword}
+                disabled={!excludeInput.trim()}
+              >
+                <FaPlus />
+              </button>
+            </div>
+            <div className={styles.skillsContainer}>
+              {filters.excludeKeywords.map(keyword => (
+                <span key={keyword} className={styles.skillTag} style={{ color: '#de350b', backgroundColor: '#ffebe6' }}>
+                  {keyword}
+                  <button type="button" className={styles.removeSkill} onClick={() => removeExcludeKeyword(keyword)} style={{ color: '#de350b' }}>
                     <FaTimes size={10} />
                   </button>
                 </span>

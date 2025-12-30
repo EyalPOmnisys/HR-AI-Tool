@@ -6,6 +6,7 @@ import type { CandidateRow, MatchRunResponse } from '../../types/match';
 import Dashboard from '../../components/ai-search/Dashboard/Dashboard';
 import MatchStatsPanel from '../../components/ai-search/Stats/MatchStatsPanel';
 import { FiArrowLeft, FiChevronDown } from 'react-icons/fi';
+import { JobDetailsSkeleton } from '../../components/ai-search/Form/JobDetailsSkeleton';
 
 type Props = {
   jobId: string;
@@ -52,7 +53,7 @@ export default function JobDetails({ jobId, onBack }: Props) {
     loadData();
   }, [jobId]);
 
-  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading job details...</div>;
+  if (loading) return <JobDetailsSkeleton />;
   if (error) return <div style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>{error}</div>;
   if (!job) return <div style={{ padding: '2rem', textAlign: 'center' }}>Job not found</div>;
 
@@ -135,15 +136,32 @@ export default function JobDetails({ jobId, onBack }: Props) {
           display: 'flex', 
           alignItems: 'center', 
           gap: '0.5rem',
-          color: '#4b5563',
-          background: 'none',
-          border: 'none',
+          color: '#3b82f6',
+          background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+          border: '1px solid #e2e8f0',
+          borderRadius: '10px',
+          padding: '12px 18px',
           cursor: 'pointer',
           marginBottom: '1.5rem',
-          fontSize: '1rem'
+          fontSize: '0.95rem',
+          fontWeight: 600,
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.04)',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+          e.currentTarget.style.borderColor = '#cbd5e1';
+          e.currentTarget.style.transform = 'translateY(-1px)';
+          e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.08)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
+          e.currentTarget.style.borderColor = '#e2e8f0';
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.04)';
         }}
       >
-        <FiArrowLeft /> Back to Jobs
+        <FiArrowLeft size={18} /> Back to Jobs
       </button>
 
       <div style={headerCardStyle}>

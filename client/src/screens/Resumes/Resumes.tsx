@@ -18,7 +18,8 @@ export const Resumes = (): ReactElement => {
     minExperience: '',
     maxExperience: '',
     skills: [],
-    freeText: []
+    freeText: [],
+    excludeKeywords: []
   })
   const [isAIMode, setIsAIMode] = useState<boolean>(false)
   const [aiPrompt, setAiPrompt] = useState<string>('')
@@ -49,7 +50,8 @@ export const Resumes = (): ReactElement => {
         minExperience: newFilters.minExperience || '',
         maxExperience: newFilters.maxExperience || '',
         skills: newFilters.skills || [],
-        freeText: newFilters.freeText || []
+        freeText: newFilters.freeText || [],
+        excludeKeywords: newFilters.excludeKeywords || []
       })
       
       setIsAIMode(false)
@@ -225,14 +227,55 @@ export const Resumes = (): ReactElement => {
     if (filters.freeText.length > 0) {
       result = result.filter((r) => {
         return filters.freeText.every(keyword => {
-          const text = keyword.toLowerCase()
-          const inSummary = r.summary?.toLowerCase().includes(text)
-          const inName = r.name?.toLowerCase().includes(text)
-          const inProfession = r.profession?.toLowerCase().includes(text)
-          const inSkills = r.skills?.some((s) => s.toLowerCase().includes(text))
-          const inSearchable = r.searchableText?.includes(text)
-          return Boolean(inSummary || inName || inProfession || inSkills || inSearchable)
+          if (!keyword.trim()) return false
+          
+          // Construct a searchable text blob
+          const searchableText = [
+            r.summary,
+            r.name,
+            r.profession,
+            ...(r.skills || []),
+            r.searchableText
+          ].filter(Boolean).join(' ').toLowerCase()
+
+          // Escape special regex characters to prevent crashes
+          const escapedKeyword = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          
+          // \b ensures word boundaries. 
+          // "ai" matches "ai" but NOT "Liaison" or "explain"
+          const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i')
+          
+          return regex.test(searchableText)
         })
+      })
+    }
+
+    if (filters.excludeKeywords.length > 0) {
+      result = result.filter((r) => {
+        // Construct a searchable text blob
+        const searchableText = [
+          r.summary,
+          r.name,
+          r.profession,
+          ...(r.skills || []),
+          r.searchableText
+        ].filter(Boolean).join(' ').toLowerCase()
+
+        // Return FALSE if ANY excluded keyword is found as a WHOLE WORD
+        const hasExcludedWord = filters.excludeKeywords.some(keyword => {
+          if (!keyword.trim()) return false
+          
+          // Escape special regex characters to prevent crashes
+          const escapedKeyword = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          
+          // \b ensures word boundaries. 
+          // "rea" matches "rea" but NOT "react" or "area"
+          const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i')
+          
+          return regex.test(searchableText)
+        })
+
+        return !hasExcludedWord
       })
     }
 

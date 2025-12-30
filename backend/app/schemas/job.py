@@ -22,6 +22,7 @@ class JobUpdate(BaseModel):
     icon: Optional[str] = Field(default=None, max_length=64)
     status: Optional[str] = Field(default=None, max_length=32)
     additional_skills: Optional[list[str]] = None
+    analysis_json: Optional[dict[str, Any]] = None
 
 
 class JobOut(BaseModel):

@@ -26,16 +26,17 @@ class MatchService:
         min_threshold: int  # Kept for API compatibility, not used anymore
     ):
         """
-        Run the complete matching pipeline with optimization to skip already-reviewed candidates.
+        Run the complete matching pipeline with 'Smart Backfill' optimization.
         
         Flow:
-        1. Check existing candidates: Get candidates already in JobCandidate table
-        2. Identify "Stage 1 Complete": Candidates with 'rag_score' are skipped (delta runs)
-        3. Ensemble scoring: Score ONLY NEW candidates (or those missing rag_score)
-        4. Persist Stage 1 Scores: Save rag_score for new candidates immediately
-        5. Combine & Sort: Merge new + existing candidates, sort by rag_score
-        6. Select Top N: Pick the best candidates
-        7. LLM: Perform deep evaluation ONLY on top N (if not already evaluated)
+        1. Check existing candidates: Get candidates already in JobCandidate table.
+        2. Ensemble scoring: Score ALL candidates (Stage 1) to get a large pool.
+        3. Smart Backfill Loop:
+           - Categorize candidates into Good (LLM>=70), Bad (LLM<70), Unknown.
+           - If not enough Good candidates, take Unknown ones and run LLM.
+           - Repeat until target reached or max rounds.
+        4. Persist Scores: Save LLM results to DB.
+        5. Return Sorted List: Good -> Bad -> Unknown.
         
         Args:
             session: Database session
@@ -47,7 +48,7 @@ class MatchService:
             Dict with job_id, new_candidates, previously_reviewed_count, and metadata
         """
         logger.info("=" * 80)
-        logger.info("MATCH SERVICE: Starting match run")
+        logger.info("MATCH SERVICE: Starting match run (Smart Backfill Mode)")
         logger.info("=" * 80)
         logger.info("Job ID: %s", job_id)
         logger.info("Requested top N: %d", top_n)
@@ -62,7 +63,12 @@ class MatchService:
         logger.info("Job loaded: '%s'", job.title)
         logger.info("")
         
-        # STEP 0: Get existing candidates
+        # --- CONFIGURATION ---
+        LLM_PASS_THRESHOLD = 70
+        MAX_ROUNDS = 3
+        # ---------------------
+
+        # STEP 0: Get existing candidates (to check for previous LLM scores)
         logger.info("STEP 0: Checking for existing candidates...")
         stmt = select(JobCandidate).where(JobCandidate.job_id == job_id)
         result = await session.execute(stmt)
@@ -71,34 +77,23 @@ class MatchService:
         # Map resume_id -> JobCandidate
         existing_candidates_map = {c.resume_id: c for c in existing_candidates}
         
-        # Identify which resumes have already completed Stage 1 (have rag_score)
-        stage1_complete_ids = {
-            c.resume_id for c in existing_candidates 
-            if c.rag_score is not None
-        }
-        
-        logger.info(f"Found {len(existing_candidates)} total candidates in DB")
-        logger.info(f"Found {len(stage1_complete_ids)} candidates with Stage 1 score already calculated")
-        logger.info("")
-        
-        # STEP 1: Ensemble Retrieval (No RAG) - ONLY NEW/UNSCORED CANDIDATES
-        logger.info("STEP 1: Ensemble Retrieval & Scoring (Delta run)")
+        # STEP 1: Ensemble Retrieval (Stage 1) - Get Large Pool
+        logger.info("STEP 1: Ensemble Retrieval & Scoring (Large Pool)")
         logger.info("-" * 80)
         
-        # We ask for a large limit to get all potential new candidates,
-        # so we can save their scores and not run them again next time.
-        new_scored_candidates = await search_and_score_candidates(
+        # We ask for a large limit to get all potential candidates
+        candidates_pool = await search_and_score_candidates(
             session=session,
             job=job,
-            limit=10000,  # Get all matches to persist their scores
-            exclude_resume_ids=stage1_complete_ids
+            limit=10000,  # Get all matches
+            exclude_resume_ids=set() # Re-score everyone to ensure consistent ranking
         )
         
-        logger.info(f"Ensemble scoring found {len(new_scored_candidates)} NEW candidates to update in DB")
+        logger.info(f"Ensemble scoring found {len(candidates_pool)} candidates")
         
-        # STEP 1.5: Persist Stage 1 Scores for NEW candidates
-        # This ensures that next time we run, we don't re-calculate these
-        for cand_data in new_scored_candidates:
+        # STEP 1.5: Persist Stage 1 Scores (RAG)
+        # We update the DB with the latest RAG scores
+        for cand_data in candidates_pool:
             resume_id = cand_data["resume_id"]
             rag_score = cand_data["rag_score"]
             breakdown = cand_data.get("breakdown", {})
@@ -124,18 +119,14 @@ class MatchService:
             current_analysis["stability"] = stability_detail
             job_candidate.analysis_json = current_analysis
             
-        # Commit Stage 1 scores immediately
-        if new_scored_candidates:
-            await session.commit()
-            logger.info("Persisted Stage 1 scores for new candidates")
+        await session.commit()
+        logger.info("Persisted Stage 1 scores")
+
+        # STEP 2: Reconstruct Full Candidate List & Categorize
+        logger.info("STEP 2: Smart Backfill Loop (Target: %d good candidates)", top_n)
         
-        # STEP 2: Reconstruct Full Candidate List (Existing + New)
-        logger.info("STEP 2: Reconstructing full candidate list...")
-        
-        all_candidates_data = []
-        
-        # Helper to reconstruct candidate dict from DB record
-        async def reconstruct_candidate_data(jc: JobCandidate) -> dict | None:
+        # Helper to reconstruct candidate dict from DB record + Pool Data
+        async def reconstruct_candidate_data(jc: JobCandidate, pool_data: dict) -> dict | None:
             resume = await session.get(Resume, jc.resume_id)
             if not resume:
                 return None
@@ -146,32 +137,20 @@ class MatchService:
             
             # Re-extract basic info
             name = person.get("name")
-            
-            # FILTER: If no name was extracted, consider this a failed parsing
-            # and do not show it in the candidate list.
             if not name or name.strip().lower() == "unknown":
                 return None
             
             # Extract emails/phones
             emails = person.get("emails", [])
             email = emails[0].get("value") if emails and isinstance(emails, list) and len(emails) > 0 and isinstance(emails[0], dict) else None
-            
             phones = person.get("phones", [])
             phone = phones[0].get("value") if phones and isinstance(phones, list) and len(phones) > 0 and isinstance(phones[0], dict) else None
             
-            # Experience years - DYNAMIC SELECTION
+            # Experience years
             exp_meta = extraction.get("experience_meta", {})
             rec_primary = exp_meta.get("recommended_primary_years", {})
-            
-            # Check job type
             is_tech_role = job.analysis_json.get("is_tech_role", True) if job.analysis_json else True
-            
-            if is_tech_role:
-                experience_years = rec_primary.get("tech", 0)
-            else:
-                # For non-tech roles, use ONLY other experience
-                # This is critical: if looking for HR, we care about "other" (0.9), not "tech" (10.5)
-                experience_years = rec_primary.get("other", 0)
+            experience_years = rec_primary.get("tech", 0) if is_tech_role else rec_primary.get("other", 0)
             
             # Title
             experiences = extraction.get("experience", [])
@@ -180,10 +159,6 @@ class MatchService:
             
             # Skills set
             skills_set = set()
-            # We don't have the full skills extraction here easily without re-running logic,
-            # but for the UI list we mainly need the name/title/score.
-            # If we need skills tags in UI, we might need to re-extract or store them.
-            # For now, let's try to get them from extraction if available
             for s in extraction.get("skills", []):
                 if isinstance(s, dict):
                     skills_set.add(s.get("name", "").lower())
@@ -194,7 +169,7 @@ class MatchService:
                 "resume_id": jc.resume_id,
                 "status": jc.status,
                 "rag_score": jc.rag_score or 0,
-                "final_score": jc.match_score or jc.rag_score or 0, # Use match_score if available, else rag_score
+                "final_score": jc.match_score or jc.rag_score or 0,
                 "llm_score": jc.llm_score,
                 "breakdown": analysis.get("rag_breakdown", {}),
                 "stability_detail": analysis.get("stability", {}),
@@ -212,83 +187,131 @@ class MatchService:
                     "resume_url": f"/resumes/{jc.resume_id}/file",
                     "file_name": Path(resume.file_path).name if resume.file_path else None,
                     "skills": skills_set,
-                }
+                },
+                # Keep pool data for context if needed
+                "pool_data": pool_data
             }
 
-        # Add NEW candidates (already in dict format)
-        # We use the dicts returned by search_and_score_candidates directly as they are rich
-        for c in new_scored_candidates:
-            # Ensure final_score is set (it might be just rag_score for now)
-            c["final_score"] = c["rag_score"]
-            all_candidates_data.append(c)
-            
-        # Add EXISTING candidates (reconstruct from DB)
-        # We only need to reconstruct those that were NOT in new_scored_candidates
-        new_ids = {c["resume_id"] for c in new_scored_candidates}
+        # Build the working list
+        all_candidates_data = []
+        pool_map = {c["resume_id"]: c for c in candidates_pool}
         
-        for jc in existing_candidates:
-            if jc.resume_id not in new_ids and jc.rag_score is not None:
-                data = await reconstruct_candidate_data(jc)
+        for jc in existing_candidates_map.values():
+            if jc.resume_id in pool_map:
+                data = await reconstruct_candidate_data(jc, pool_map[jc.resume_id])
                 if data:
                     all_candidates_data.append(data)
         
-        # Sort by RAG Score (Stage 1) to find the best ones
-        # Note: If we have match_score (Stage 2), we might want to sort by that?
-        # But the funnel logic says: Sort by Stage 1 to decide who goes to Stage 2.
-        # For the final return list, we probably want to sort by final_score.
-        # Let's sort by rag_score first to pick the top N for LLM.
+        # Sort by RAG Score (Stage 1) to prioritize checking
+        all_candidates_data.sort(key=lambda x: x["rag_score"], reverse=True)
         
         # Filter: Keep only candidates that are effectively "NEW" (Status based)
-        # This ensures we keep seeing the best candidates until the human moves them to another status.
+        # We only run auto-match on 'new' candidates.
         candidates_pool_for_selection = [
             c for c in all_candidates_data 
             if c.get("status", "new") == "new"
         ]
         
-        candidates_pool_for_selection.sort(key=lambda x: x["rag_score"], reverse=True)
+        # Categorize ALL candidates to ensure we don't get blocked by "Bad" ones at the top
+        good_candidates = []
+        bad_candidates = []
+        unknown_candidates = []
         
-        logger.info(f"Total candidates available for selection (Status=new): {len(candidates_pool_for_selection)}")
-        
-        # Select Top N for LLM Evaluation
-        candidates_for_llm_pool = candidates_pool_for_selection[:top_n]
-        
-        # STEP 3: LLM Deep Evaluation (Stage 2)
-        # Only run LLM on candidates that don't have an LLM score yet
-        candidates_needing_llm = []
-        for c in candidates_for_llm_pool:
-            # Check if we already have a valid LLM score
-            # We check the dict key 'llm_score' which we populated in reconstruct or from new
-            if c.get("llm_score") is None:
-                candidates_needing_llm.append(c)
-        
-        logger.info("STEP 3: LLM Deep Evaluation")
-        logger.info("-" * 80)
-        logger.info(f"Top {len(candidates_for_llm_pool)} candidates selected.")
-        logger.info(f"Candidates needing LLM evaluation: {len(candidates_needing_llm)}")
-        
-        if candidates_needing_llm:
-            logger.info("Sending candidates to LLM...")
+        for cand in candidates_pool_for_selection:
+            llm_score = cand.get("llm_score")
+            if llm_score is not None:
+                if llm_score >= LLM_PASS_THRESHOLD:
+                    good_candidates.append(cand)
+                else:
+                    bad_candidates.append(cand)
+            else:
+                unknown_candidates.append(cand)
+                
+        logger.info(f"Initial State: Good={len(good_candidates)}, Bad={len(bad_candidates)}, Unknown={len(unknown_candidates)}")
+
+        # THE LOOP
+        for round_num in range(1, MAX_ROUNDS + 1):
+            # Check if we have enough
+            if len(good_candidates) >= top_n:
+                logger.info(f"Target reached! We have {len(good_candidates)} good candidates.")
+                break
+            
+            if not unknown_candidates:
+                logger.info("No more unknown candidates to check.")
+                break
+                
+            needed = top_n - len(good_candidates)
+            # Fetch a batch. We take a bit more than needed (1.5x) to increase hit rate
+            # CHANGE 4: Increase batch size multiplier to give LLM more options
+            # If algorithm isn't perfect, giving LLM more candidates helps it find the needle in the haystack
+            batch_size = max(5, int(needed * 3.0)) 
+            
+            batch_to_test = unknown_candidates[:batch_size]
+            unknown_candidates = unknown_candidates[batch_size:] # Remove from pool
+            
+            logger.info(f"--- ROUND {round_num}/{MAX_ROUNDS} ---")
+            logger.info(f"Need {needed} more. Sending {len(batch_to_test)} candidates to LLM...")
+            
+            # Run LLM
             llm_results = await LLMJudge.evaluate_candidates(
                 session=session,
                 job=job,
-                candidates=candidates_needing_llm
+                candidates=batch_to_test
             )
             
-            # Update the data in our list with LLM results
+            # Process results
             llm_results_map = {c["resume_id"]: c for c in llm_results}
             
-            for i, c in enumerate(candidates_for_llm_pool):
-                rid = c["resume_id"]
+            for cand in batch_to_test:
+                rid = cand["resume_id"]
                 if rid in llm_results_map:
-                    # Replace with the enriched version from LLM (contains final_score, llm_analysis etc)
-                    candidates_for_llm_pool[i] = llm_results_map[rid]
-        else:
-            logger.info("All top candidates already have LLM scores. Skipping LLM.")
+                    result = llm_results_map[rid]
+                    
+                    # Update candidate object
+                    final_score = result.get("final_score", 0) # This is the blended score from LLMJudge
+                    llm_score_only = result.get("llm_score", 0)
+                    
+                    cand["final_score"] = final_score
+                    cand["llm_score"] = llm_score_only
+                    cand["llm_analysis"] = result.get("llm_analysis", {})
+                    
+                    # Update DB
+                    jc = existing_candidates_map.get(rid)
+                    if jc:
+                        jc.match_score = final_score
+                        jc.llm_score = llm_score_only
+                        
+                        current_analysis = dict(jc.analysis_json) if jc.analysis_json else {}
+                        current_analysis["llm_verdict"] = cand["llm_analysis"].get("verdict")
+                        current_analysis["llm_strengths"] = cand["llm_analysis"].get("strengths")
+                        current_analysis["llm_concerns"] = cand["llm_analysis"].get("concerns")
+                        jc.analysis_json = current_analysis
+                        session.add(jc)
+                    
+                    # Categorize
+                    # We use the LLM score (Stage 2) to decide Good/Bad, not the blended final score
+                    # because we want to know if the LLM liked them.
+                    if llm_score_only >= LLM_PASS_THRESHOLD:
+                        good_candidates.append(cand)
+                    else:
+                        bad_candidates.append(cand)
+            
+            await session.commit()
 
-        # STEP 4: Final Persistence & Response Building
-        logger.info("STEP 4: Finalizing results...")
+        # STEP 3: Final Assembly & Response Building
+        logger.info("STEP 3: Finalizing results...")
         
-        response_candidates = []
+        # Sort Good by score descending
+        good_candidates.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+        
+        # Sort Bad by score descending
+        bad_candidates.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+        
+        # Sort Unknown by RAG score descending
+        unknown_candidates.sort(key=lambda x: x.get("rag_score", 0), reverse=True)
+        
+        # Combine: Good first, then Bad (so user sees they were checked), then Unknown
+        final_list = good_candidates + bad_candidates + unknown_candidates
         
         # Helper for string conversion
         def _ensure_string(value):
@@ -296,58 +319,26 @@ class MatchService:
                 return "\n".join(str(item) for item in value)
             return str(value) if value else ""
 
-        # We iterate over the top N pool which now has updated scores
-        for candidate in candidates_for_llm_pool:
+        response_candidates = []
+        for candidate in final_list[:top_n]: # Return requested amount (or maybe more?)
+            # User requested top_n. If we have 10 good and 5 bad, and top_n=10, we return 10 good.
+            # If we have 5 good and 5 bad, and top_n=10, we return all 10.
+            
             resume_id = candidate["resume_id"]
             contact = candidate["contact"]
+            llm_analysis = candidate.get("llm_analysis", {})
+            stability_detail = candidate.get("stability_detail", {})
             
             # Convert skills set to list for JSON
+            skills_list = []
             if isinstance(contact.get("skills"), set):
-                contact["skills"] = sorted(list(contact["skills"]))
-            
-            # Extract LLM analysis fields
-            llm_analysis = candidate.get("llm_analysis", {})
-            
-            # Extract stability data
-            stability_detail = candidate.get("stability_detail", {})
-            stability_score = stability_detail.get("score", 0.5) if stability_detail else 0.5
-            stability_verdict = stability_detail.get("verdict", "unknown") if stability_detail else "unknown"
-            
-            # CHANGE: Determine Final Score based ONLY on LLM if available
-            llm_score = candidate.get("llm_score")
-            rag_score = candidate.get("rag_score")
-            
-            if llm_score is not None:
-                # If LLM score exists, it IS the match score. 100% weight.
-                final_score = int(llm_score)
-            else:
-                # Fallback to RAG score only if LLM hasn't run
-                final_score = int(rag_score) if rag_score is not None else 0
-
-            # Update the candidate dict for the response
-            candidate["final_score"] = final_score
-
-            # Update DB with Final Scores (LLM + Match)
-            job_candidate = existing_candidates_map.get(resume_id)
-            # (Should exist by now)
-            
-            if job_candidate:
-                # Update scores
-                job_candidate.match_score = final_score
-                # rag_score is already set
-                job_candidate.llm_score = int(llm_score) if llm_score is not None else None
-                
-                # Update Analysis JSON with LLM results
-                current_analysis = dict(job_candidate.analysis_json) if job_candidate.analysis_json else {}
-                current_analysis["llm_verdict"] = llm_analysis.get("verdict")
-                current_analysis["llm_strengths"] = llm_analysis.get("strengths")
-                current_analysis["llm_concerns"] = llm_analysis.get("concerns")
-                # stability and rag_breakdown already set
-                job_candidate.analysis_json = current_analysis
+                skills_list = sorted(list(contact["skills"]))
+            elif isinstance(contact.get("skills"), list):
+                skills_list = contact["skills"]
 
             response_candidates.append({
                 "resume_id": resume_id,
-                "match": final_score,
+                "match": candidate.get("final_score", 0),
                 "candidate": contact.get("name"),
                 "title": contact.get("title"),
                 "experience": _format_experience(contact.get("experience_years")),
@@ -355,18 +346,15 @@ class MatchService:
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
                 "file_name": contact.get("file_name"),
-                "rag_score": int(rag_score) if rag_score is not None else 0,
-                "llm_score": int(llm_score) if llm_score is not None else None,
+                "rag_score": candidate.get("rag_score", 0),
+                "llm_score": candidate.get("llm_score"),
                 "rag_breakdown": candidate.get("breakdown", {}),
                 "llm_strengths": _ensure_string(llm_analysis.get("strengths", "")),
                 "llm_concerns": _ensure_string(llm_analysis.get("concerns", "")),
-                "stability_score": int(stability_score * 100),
-                "stability_verdict": stability_verdict,
-                "status": job_candidate.status if job_candidate else "new",
+                "stability_score": int(stability_detail.get("score", 0) * 100) if stability_detail else 0,
+                "stability_verdict": stability_detail.get("verdict", "unknown") if stability_detail else 0,
+                "status": candidate.get("status", "new"),
             })
-        
-        # Commit final updates
-        await session.commit()
         
         logger.info("")
         logger.info("=" * 80)
@@ -378,9 +366,9 @@ class MatchService:
             "requested_top_n": top_n,
             "min_threshold": min_threshold,
             "new_candidates": response_candidates,
-            "new_count": len(new_scored_candidates),
-            "previously_reviewed_count": len(stage1_complete_ids),
-            "all_candidates_already_reviewed": False # Logic changed, we always return mixed list
+            "new_count": len(candidates_pool),
+            "previously_reviewed_count": 0, # We re-scored everyone
+            "all_candidates_already_reviewed": False
         }
 
 

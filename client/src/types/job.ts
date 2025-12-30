@@ -98,6 +98,7 @@ export type CreateJobPayload = {
   icon?: string;
   status?: string;
   additional_skills?: string[];
+  analysis_json?: JobAnalysis;
 };
 
 export type UpdateJobPayload = {
@@ -107,6 +108,7 @@ export type UpdateJobPayload = {
   icon?: string;
   status?: string;
   additional_skills?: string[];
+  analysis_json?: JobAnalysis;
 };
 
 export type JobListResponse = {
@@ -119,11 +121,11 @@ export interface Job {
   id: string;
   title: string;
   description: string;
-  freeText: string;
+  freeText?: string;
   icon: string;
   postedAt: string;
   analysis: JobAnalysis | null;
   additionalSkills: string[];
 }
 
-export type JobDraft = Omit<Job, 'id' | 'postedAt' | 'analysis'>;
+export type JobDraft = Omit<Job, 'id' | 'postedAt' | 'analysis'> & { analysis_json?: JobAnalysis };

@@ -46,14 +46,16 @@ export const JobCard = ({ job, onEdit, onDelete, onOpen }: JobCardProps): ReactE
   }
 
   const analysis = job.analysis
-  const mustHaveSkills = analysis?.skills?.must_have?.slice(0, 4) ?? []
-  const niceToHaveSkills = analysis?.skills?.nice_to_have?.slice(0, 3) ?? []
+  const mustHaveSkills = analysis?.skills?.must_have?.slice(0, 10) ?? []
+  const niceToHaveSkills = analysis?.skills?.nice_to_have?.slice(0, 5) ?? []
   const locations = analysis?.locations?.slice(0, 2) ?? []
   const techStack = [
     ...(analysis?.tech_stack?.languages ?? []),
     ...(analysis?.tech_stack?.frameworks ?? []),
     ...(analysis?.tech_stack?.databases ?? []),
-  ].slice(0, 5)
+    ...(analysis?.tech_stack?.cloud ?? []),
+    ...(analysis?.tech_stack?.tools ?? []),
+  ].slice(0, 8)
   const requirements = analysis?.requirements?.slice(0, 3) ?? []
 
   // Check if AI analysis is complete (has summary or other AI-generated content)

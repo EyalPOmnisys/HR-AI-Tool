@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = Field(default="http://host.docker.internal:11434", description="Base URL of local Ollama server")
     LLM_CHAT_MODEL: str = Field(default="llama3.2", description="Model used for job analysis")
     LLM_CHAT_MODEL_RESUME: str = Field(default="llama3.2", description="Model used for resume analysis")
-    EMBEDDING_MODEL: str = Field(default="nomic-embed-text", description="Model used for text embeddings")
+    EMBEDDING_MODEL: str = Field(default="nomic-embed-text-v2-moe:latest", description="Model used for text embeddings")
     ANALYSIS_VERSION: int = Field(default=1)
 
     # --- OpenAI Integration (Disabled by default) ---

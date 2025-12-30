@@ -12,13 +12,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Job, Resume
 from app.services.match.retrieval import skills_matcher, experience_scorer, title_matcher, employment_stability_scorer
 from app.services.match.retrieval.title_matcher import TitleMatcher
-from app.services.resumes.ingestion_pipeline import _extract_profession
+from app.services.resumes.ingestion_pipeline import _extract_profession, _extract_skills
 
 logger = logging.getLogger("match.ensemble")
 
 # Initialize title embedder once for efficiency
 TITLE_EMBEDDER = None
 
+# Static object for stability details (since we disabled it) - saves re-creating it 1000 times
+EMPTY_STABILITY_DETAIL = {
+    "score": 0,
+    "average_tenure": 0,
+    "expected_tenure": 0,
+    "total_jobs": 0,
+    "short_stints": 0,
+    "long_tenures": 0,
+    "verdict": "N/A (Disabled)",
+    "concerns": [],
+    "strengths": []
+}
 
 def get_title_embedder():
     """Lazy-load title embedder on first use"""
@@ -86,6 +98,17 @@ async def search_and_score_candidates(
     required_skills = job_skills_data.get("must_have", [])
     nice_to_have_skills = job_skills_data.get("nice_to_have", [])
     additional_skills = job_skills_data.get("additional_skills", [])
+
+    # Include Tech Stack in required skills
+    tech_stack = job_analysis.get("tech_stack", {})
+    if tech_stack:
+        for category in ["languages", "frameworks", "databases", "cloud", "tools", "business"]:
+            items = tech_stack.get(category, [])
+            if items:
+                required_skills.extend(items)
+        
+        # Remove duplicates while preserving order
+        required_skills = list(dict.fromkeys(required_skills))
     
     # Log job requirements once at the start
     logger.info("┌═════════════════════════════════════════════════════════════════┐")
@@ -111,10 +134,6 @@ async def search_and_score_candidates(
     
     verbose = logger.isEnabledFor(logging.DEBUG)
 
-    # Import once (was previously imported per-candidate)
-    from app.services.resumes.ingestion_pipeline import _extract_skills
-    import asyncio
-
     # === OPTIMIZATION: Pre-calculate Job Title Embedding ONCE ===
     # Instead of doing this N times inside the loop
     job_title_embedding = await TitleMatcher.get_embedding_from_ollama_async(
@@ -124,6 +143,13 @@ async def search_and_score_candidates(
     # Helper function for parallel processing
     async def process_candidate_async(resume):
         resume_id = resume.id
+        
+        # Initialize variables to avoid UnboundLocalError
+        title_score = 0.0
+        title_score_100 = 0.0
+        best_resume_title = "Unknown"
+        match_source = None
+
         try:
             extraction = resume.extraction_json or {}
             
@@ -161,24 +187,25 @@ async def search_and_score_candidates(
             exp_score = exp_result["score"]
             
             # === Calculate Employment Stability Score ===
+            # Calculated for display but NOT used in scoring (Weight = 0%)
             stability_result = employment_stability_scorer.calculate_employment_stability(
                 candidate_extraction=extraction,
                 job_analysis=job_analysis
             )
-            stability_score = stability_result["score"]
+            stability_score = stability_result.get("score", 0.0)
             
             # === OPTIMIZATION 2: THE FUNNEL (Fast Fail) ===
             # Calculate partial score of "cheap" components
-            # Skills (45%) + Experience (20%) + Stability (5%) = 70% of total weight
+            # Skills (45%) + Experience (25%) = 70% of total weight
             partial_score = (
                 0.45 * (skills_result.weighted_score / 100) +
-                0.20 * exp_score +
-                0.05 * stability_score
+                0.25 * exp_score
             )
             
             # If partial score is very low (e.g. < 0.15), skip expensive Title Match
             # This means candidate has poor skills AND poor experience match
-            SKIP_THRESHOLD = 0.15
+            # CHANGED: Disabled optimization to ensure we don't miss candidates with bad parsing but good titles
+            SKIP_THRESHOLD = -1.0 # 0.15
             
             title_score = 0.0
             best_resume_title = ""
@@ -207,11 +234,11 @@ async def search_and_score_candidates(
                 
                 # 2. Calculate match using the helper that prioritizes profession
                 # NOW ASYNC!
-                # CHANGED: We pass experience_list=[] to FORCE the matcher to ignore history.
-                # It will only compare job.title vs primary_profession.
+                # CHANGED: We pass experience_list=experiences so the matcher can check HISTORY for management roles
+                # BUT we rely on candidate_profession for the main semantic match.
                 title_match_result = await title_matcher.calculate_title_match_with_history_async(
                     job_title=job.title,
-                    experience_list=[], # <--- EMPTY LIST: Ignore history completely
+                    experience_list=experiences, # <--- CHANGED: Pass full history again!
                     candidate_profession=primary_profession,
                     top_n=1,
                     job_embedding_vector=job_title_embedding # <--- PASS PRE-CALCULATED EMBEDDING
@@ -247,35 +274,33 @@ async def search_and_score_candidates(
                 )
             
             # === Ensemble Weighted Score ===
-            # Weights (tunable):
-            # - Skills: 35% (Was 45%) - Reduced to avoid "Developer applying for DevOps" false positives
-            # - Title: 40% (Was 30%) - Increased to prioritize professional identity
-            # - Experience: 20% (Seniority)
-            # - Stability: 5% (Employment stability)
-            # - RAG: Removed (was 10%)
+            # Weights Updated:
+            # - Title: 55% (Dominant)
+            # - Experience: 25% (Very Important)
+            # - Skills: 20% (Secondary)
+            # - Stability: 0% (Removed)
             
             final_score = (
-                0.35 * (skills_result.weighted_score / 100) +
-                0.40 * title_score +
-                0.20 * exp_score +
-                0.05 * stability_score
+                0.55 * title_score +
+                0.25 * exp_score +
+                0.20 * (skills_result.weighted_score / 100)
             )
             
             # === RED FLAG: Poor Title Match ===
-            # If title match is below 60%, apply a significant penalty
-            # Increased threshold from 0.50 to 0.60 to better filter out adjacent roles (e.g. Dev vs DevOps)
-            RED_FLAG_TITLE_THRESHOLD = 0.60
-            RED_FLAG_PENALTY = 0.50  # Reduce score by 50% (was 40%)
+            # If title match is below 70%, apply a MASSIVE penalty.
+            # This ensures "QA Automation" doesn't get matched for "QA Lead"
+            RED_FLAG_TITLE_THRESHOLD = 0.75 # Was 0.70
+            RED_FLAG_PENALTY = 0.10  # Was 0.30 (Now keeps only 10% of score instead of 30%)
             
             if title_score < RED_FLAG_TITLE_THRESHOLD:
-                penalty_amount = final_score * RED_FLAG_PENALTY
-                final_score = final_score * (1.0 - RED_FLAG_PENALTY)
+                penalty_amount = final_score * (1.0 - RED_FLAG_PENALTY) # Calculate amount lost
+                final_score = final_score * RED_FLAG_PENALTY
                 logger.info("├─────────────────────────────────────────────────────────────────┤")
-                logger.info(f"│ 🚩 RED FLAG: Poor title match (<{RED_FLAG_TITLE_THRESHOLD*100:.0f}%) - applying {RED_FLAG_PENALTY*100:.0f}% penalty   │")
+                logger.info(f"│ 🚩 RED FLAG: Poor title match (<{RED_FLAG_TITLE_THRESHOLD*100:.0f}%) - applying {(1-RED_FLAG_PENALTY)*100:.0f}% penalty   │")
                 logger.info(f"│    Penalty: -{penalty_amount * 100:.1f}% → New score: {final_score * 100:.1f}%            │")
                 logger.info("└─────────────────────────────────────────────────────────────────┘")
             
-            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (35%×Skills + 40%×Title + 20%×Exp + 5%×Stability) │")
+            logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (55%×Title + 25%×Exp + 20%×Skills) │")
             logger.info("")
             
             # Convert to 0-100 scale
@@ -345,17 +370,7 @@ async def search_and_score_candidates(
                     "required_years": exp_result.get("required_years"),
                     "verdict": exp_result.get("verdict")
                 },
-                "stability_detail": {
-                    "score": stability_result.get("score"),
-                    "average_tenure": stability_result.get("average_tenure_years"),
-                    "expected_tenure": stability_result.get("expected_tenure_years"),
-                    "total_jobs": stability_result.get("total_jobs"),
-                    "short_stints": stability_result.get("short_stints"),
-                    "long_tenures": stability_result.get("long_tenures"),
-                    "verdict": stability_result.get("verdict"),
-                    "concerns": stability_result.get("concerns", []),
-                    "strengths": stability_result.get("strengths", [])
-                },
+                "stability_detail": stability_result,
                 "title_detail": {
                     "job_title": job.title,
                     "resume_titles": resume_titles,

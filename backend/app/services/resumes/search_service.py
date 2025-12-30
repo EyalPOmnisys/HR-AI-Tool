@@ -41,7 +41,8 @@ def analyze_search_query(query: str) -> ResumeSearchAnalysis:
         min_experience=data.get("min_experience"),
         max_experience=data.get("max_experience"),
         skills=normalized_skills,
-        free_text=None
+        free_text=None,
+        exclude_keywords=data.get("exclude_keywords", [])
     )
     logger.info(f"Parsed analysis result: {result}")
     return result

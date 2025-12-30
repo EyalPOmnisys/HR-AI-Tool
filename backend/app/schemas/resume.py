@@ -53,6 +53,7 @@ class ResumeSearchAnalysis(BaseModel):
     max_experience: Optional[int] = None
     skills: list[str] = Field(default_factory=list)
     free_text: Optional[str] = None
+    exclude_keywords: list[str] = Field(default_factory=list)
 
 
 class ResumeContactItem(BaseModel):

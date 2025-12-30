@@ -15,7 +15,7 @@ Return ONLY valid JSON matching this exact structure:
 {
   "person": {
     "name": string|null,           // Full name as written in resume
-    "self_declared_title": string|null, // Candidate's self-described title/headline (e.g. "Aspiring Software Developer", "Full Stack Engineer")
+    "self_declared_title": string|null, // Candidate's professional title. MAX 3-5 words. e.g. "Senior Software Engineer". Do NOT use sentences, soft skills, or long summaries.
     "location": string|null,        // Current city/country if mentioned
     "phones": [{"value": string, "type": "phone"}], // Candidate's primary phone only. Ignore references.
     "emails": [{"value": string, "type": "email"}], // Candidate's email only. Ignore references.

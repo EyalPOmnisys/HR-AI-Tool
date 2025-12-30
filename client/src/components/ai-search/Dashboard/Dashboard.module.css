@@ -482,6 +482,20 @@
   padding-bottom: 12px;
 }
 
+/* Checkbox Column */
+.checkboxColumn {
+  width: 40px;
+  text-align: center;
+  padding: 8px !important;
+}
+
+.selectCheckbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
 .filterBar {
   display: flex;
   align-items: center;

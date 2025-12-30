@@ -17,7 +17,7 @@ const mapApiToUi = (api: ApiJob): Job => ({
   id: api.id,
   title: api.title,
   description: api.job_description,
-  freeText: api.free_text ?? '',
+  freeText: api.free_text ?? undefined,
   icon: api.icon ?? '👥',
   postedAt: api.created_at,
   analysis: api.analysis_json,
@@ -72,7 +72,7 @@ export const JobBoard = (): ReactElement => {
       (job) =>
         job.title.toLowerCase().includes(query) ||
         job.description.toLowerCase().includes(query) ||
-        job.freeText.toLowerCase().includes(query)
+        (job.freeText && job.freeText.toLowerCase().includes(query))
     )
   }, [jobs, searchQuery])
 
@@ -164,7 +164,6 @@ export const JobBoard = (): ReactElement => {
         const payload = {
           title: draft.title,
           job_description: draft.description,
-          free_text: draft.freeText,
           icon: draft.icon,
           status: 'draft',
           additional_skills: draft.additionalSkills,
@@ -180,23 +179,31 @@ export const JobBoard = (): ReactElement => {
         setJobs((prev) => [ui, ...prev])
         startAnalysisPolling(ui.id)
       } else if (editingJobId) {
+        // Stop any active polling for this job before updating
+        if (pollingMapRef.current[editingJobId]) {
+          clearInterval(pollingMapRef.current[editingJobId])
+          delete pollingMapRef.current[editingJobId]
+        }
+
         const payload = {
           title: draft.title,
           job_description: draft.description,
-          free_text: draft.freeText,
           icon: draft.icon,
           additional_skills: draft.additionalSkills,
+          analysis_json: draft.analysis_json,
         }
         const updated = await updateJob(editingJobId, payload)
-        // Create UI job and preserve additional_skills
+        
+        // Map the updated job from API
         const ui = mapApiToUi(updated)
-        // Keep the additional_skills but clear the rest of analysis to show skeleton
-        ui.analysis = updated.additional_skills?.length 
-          ? { additional_skills: updated.additional_skills } as any
-          : null
-        ui.additionalSkills = updated.additional_skills ?? []
+        
+        // Update the jobs list
         setJobs((prev) => prev.map((job) => (job.id === editingJobId ? ui : job)))
-        startAnalysisPolling(ui.id)
+        
+        // Only poll if we didn't manually update analysis (assuming manual update means no re-analysis)
+        if (!draft.analysis_json) {
+            startAnalysisPolling(ui.id)
+        }
       }
       setIsModalOpen(false)
     } catch (error) {

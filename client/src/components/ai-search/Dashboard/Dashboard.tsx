@@ -7,6 +7,7 @@ import { localizeILPhone, formatILPhoneDisplay } from '../../../utils/phone'
 import { renderAsync } from 'docx-preview'
 import { updateCandidateStatus, updateCandidate } from '../../../services/jobs'
 import { SegmentedControl } from '../../common/SegmentedControl/SegmentedControl'
+import BulkActions from '../BulkActions/BulkActions'
 
 type Props = {
   matchResults: MatchRunResponse
@@ -205,9 +206,15 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
   const [expandedConcerns, setExpandedConcerns] = useState<Set<string>>(new Set());
   const [showJobDescription, setShowJobDescription] = useState(false);
   
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStatusValue, setBulkStatusValue] = useState<string>('new');
+  
   // Update local state when props or filter change
   useEffect(() => {
     setCandidates(displayedCandidates);
+    // Clear selections when displayed candidates change
+    setSelectedIds(new Set());
   }, [displayedCandidates]);
 
   // Filter candidates by status and sort by match score descending
@@ -321,6 +328,61 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
       }
       return newSet;
     });
+  };
+
+  // Bulk selection handlers
+  const handleToggleSelect = (resumeId: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(resumeId)) {
+        newSet.delete(resumeId);
+      } else {
+        newSet.add(resumeId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredCandidates.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredCandidates.map(c => c.resume_id)));
+    }
+  };
+
+  const handleBulkStatusUpdate = async () => {
+    if (!selectedJob || selectedIds.size === 0) return;
+    
+    const idsToUpdate = Array.from(selectedIds);
+    
+    try {
+      // Optimistic update
+      setCandidates(prev => prev.map(c => 
+        idsToUpdate.includes(c.resume_id) ? { ...c, status: bulkStatusValue } : c
+      ));
+      
+      setGeneratedCandidates(prev => prev.map(c => 
+        idsToUpdate.includes(c.resume_id) ? { ...c, status: bulkStatusValue } : c
+      ));
+      
+      setAllCandidates(prev => prev.map(c => 
+        idsToUpdate.includes(c.resume_id) ? { ...c, status: bulkStatusValue } : c
+      ));
+      
+      // Update all selected candidates
+      await Promise.all(
+        idsToUpdate.map(resumeId => 
+          updateCandidateStatus(selectedJob.id, resumeId, bulkStatusValue)
+        )
+      );
+      
+      // Clear selection after successful update
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error("Failed to bulk update status:", error);
+      // Could revert on error
+    }
   };
 
   // Determine experience column label
@@ -606,6 +668,14 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
       <div className={styles.tableSection}>
         {candidates.length > 0 && showFilter && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '20px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            {/* Bulk Actions Component */}
+            <BulkActions
+              selectedCount={selectedIds.size}
+              bulkStatusValue={bulkStatusValue}
+              onStatusChange={setBulkStatusValue}
+              onApply={handleBulkStatusUpdate}
+              onClear={() => setSelectedIds(new Set())}
+            />
             {/* Status Filter Segmented Control */}
             <div style={{ flex: 1, minWidth: '100%' }}>
               <SegmentedControl
@@ -669,6 +739,17 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
             <table className={styles.candidateTable}>
             <thead>
               <tr>
+                {showFilter && (
+                  <th className={styles.checkboxColumn}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === filteredCandidates.length && filteredCandidates.length > 0}
+                      onChange={handleSelectAll}
+                      className={styles.selectCheckbox}
+                      title="Select all"
+                    />
+                  </th>
+                )}
                 <th>🎯 Match</th>
                 <th>👤 Candidate</th>
                 <th>💼 Title</th>
@@ -686,6 +767,17 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
               {filteredCandidates.map((candidate) => (
                 <>
                   <tr key={candidate.resume_id} className={expandedResumeId === candidate.resume_id ? styles.expandedRow : ''}>
+                    {showFilter && (
+                      <td className={styles.checkboxColumn}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(candidate.resume_id)}
+                          onChange={() => handleToggleSelect(candidate.resume_id)}
+                          className={styles.selectCheckbox}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className={styles.scoreContainer}>
                         <div
@@ -861,7 +953,7 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={12} className={styles.resumeCell}>
+                      <td colSpan={showFilter ? 13 : 12} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <ResumePreview 
                             url={`${API_URL}${candidate.resume_url}`} 

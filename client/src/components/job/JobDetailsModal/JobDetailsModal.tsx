@@ -1,6 +1,7 @@
 ﻿import styles from './JobDetailsModal.module.css'
 import type { MouseEvent, ReactElement } from 'react'
 import type { Job } from '../../../types/job'
+import { JobDetailsModalSkeleton } from './JobDetailsModalSkeleton'
 
 type JobDetailsModalProps = {
   open: boolean
@@ -119,30 +120,8 @@ export const JobDetailsModal = ({ open, job, onClose, onEdit, onDelete }: JobDet
 
         <div className={styles.body}>
           {!analysis ? (
-            // Show loading state while analysis is being generated
-            <>
-              <section className={styles.section}>
-                <div className={styles.loadingState}>
-                  <div className={styles.loadingIcon}>🤖</div>
-                  <h3 className={styles.loadingTitle}>AI Analysis in Progress</h3>
-                  <p className={styles.loadingText}>
-                    Our AI is analyzing this job posting. This usually takes a few seconds...
-                  </p>
-                </div>
-                {/* Show original description while waiting */}
-                <div className={styles.originalDescription}>
-                  <h3 className={styles.sectionTitle}>Original Description</h3>
-                  <p className={styles.description}>{job.description}</p>
-                </div>
-              </section>
-              {/* Candidate Message */}
-              {job.freeText && (
-                <section className={styles.section}>
-                  <h3 className={styles.sectionTitle}>Additional Notes</h3>
-                  <p className={styles.freeText}>{job.freeText}</p>
-                </section>
-              )}
-            </>
+            // Show skeleton while analysis is being generated
+            <JobDetailsModalSkeleton />
           ) : (
             <>
               {/* Summary Section */}

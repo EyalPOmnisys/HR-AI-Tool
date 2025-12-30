@@ -43,7 +43,7 @@ class TitleMatcher:
             response = requests.post(
                 f"{settings.OLLAMA_BASE_URL}/api/embeddings",
                 json={
-                    "model": settings.SENTENCE_TRANSFORMER_MODEL,
+                    "model": settings.EMBEDDING_MODEL,
                     "prompt": clean_text
                 },
                 timeout=5
@@ -102,12 +102,62 @@ class TitleMatcher:
         return found_terms
 
     @staticmethod
-    def compute_keyword_boost(job_title: str, resume_title: str) -> float:
+    def _detect_management_mismatch(job_title: str, resume_title: str, history_titles: List[str] = None) -> bool:
+        """
+        Detects if job requires management role but resume doesn't have it.
+        NOW SMART: Checks history if current title fails.
+        """
+        job_lower = job_title.lower()
+        res_lower = resume_title.lower()
+        
+        # Terms that indicate a leadership role
+        management_terms = {'lead', 'manager', 'head', 'director', 'vp', 'chief', 'principal', 'senior'}
+        
+        # Check if job requires management
+        job_needs_management = any(term in job_lower for term in management_terms)
+        
+        if not job_needs_management:
+            return False
+            
+        # 1. Check if CURRENT title has management terms
+        if any(term in res_lower for term in management_terms):
+            return False # Match found in current title
+            
+        # 2. NEW: Check HISTORY if current failed
+        # If they were a manager in the past, we forgive the current title mismatch
+        if history_titles:
+            for hist_title in history_titles:
+                if not hist_title: continue
+                h_lower = hist_title.lower()
+                if any(term in h_lower for term in management_terms):
+                    # Found management in history!
+                    return False 
+
+        # MISMATCH: Job needs management, Resume (current & history) doesn't have it
+        return True
+
+    @staticmethod
+    def compute_keyword_boost(job_title: str, resume_title: str, history_titles: List[str] = None) -> float:
         """
         Calculate keyword-based boost for similar technical terms.
         Now uses comprehensive knowledge base for ALL high-tech roles.
         Returns 0-30 (bonus points to add to semantic score).
         """
+        # CHANGE 3: Anti-Pattern Detection (Recruiters, HR)
+        # If job is technical (Engineer/Developer) but resume is HR/Recruiter -> KILL SCORE
+        job_lower = job_title.lower()
+        res_lower = resume_title.lower()
+        
+        tech_indicators = {'engineer', 'developer', 'architect', 'devops', 'sre', 'programmer', 'data scientist'}
+        hr_indicators = {'recruiter', 'talent acquisition', 'hr ', 'human resources', 'sourcing', 'headhunter'}
+        
+        is_tech_job = any(t in job_lower for t in tech_indicators)
+        is_hr_resume = any(h in res_lower for h in hr_indicators)
+        
+        if is_tech_job and is_hr_resume:
+            logger.info(f"Title Mismatch Detected: Tech Job '{job_title}' vs HR Resume '{resume_title}'")
+            return -100.0 # Massive penalty to kill the match
+
         # Step 1: Check knowledge base for role category matching
         # This handles: DevOps ↔ SRE, Data Scientist ↔ ML Engineer, etc.
         kb_boost = get_role_similarity_boost(job_title, resume_title)
@@ -145,6 +195,13 @@ class TitleMatcher:
         # Step 3: Use the MAXIMUM of knowledge base and keyword boost
         # This ensures we get best signal from either approach
         final_boost = max(kb_boost, keyword_boost)
+        
+        # === CRITICAL FIX: Management Mismatch with History Check ===
+        # Pass history to the detector
+        if TitleMatcher._detect_management_mismatch(job_title, resume_title, history_titles):
+            # Return a negative value to punish the score significantly
+            # This will subtract from the semantic score (which is usually 0-100)
+            return -30.0 
         
         if final_boost > 0:
             logger.debug(
@@ -303,7 +360,8 @@ class TitleMatcher:
         job_title: Union[str, tuple],
         resume_titles: List[str],
         embedder=None,
-        job_title_text: str = ""
+        job_title_text: str = "",
+        history_titles: List[str] = None # <--- NEW PARAMETER
     ) -> Dict[str, Any]:
         """Async version of compute_detailed_match"""
         if not job_title or not resume_titles:
@@ -344,7 +402,8 @@ class TitleMatcher:
             # 2. Keyword boost
             keyword_boost = 0.0
             if j_text:
-                keyword_boost = TitleMatcher.compute_keyword_boost(j_text, resume_title)
+                # Pass history_titles to compute_keyword_boost
+                keyword_boost = TitleMatcher.compute_keyword_boost(j_text, resume_title, history_titles)
             
             combined_score = min(100.0, semantic_score + keyword_boost)
             
@@ -463,6 +522,12 @@ async def calculate_title_match_with_history_async(
     else:
         job_embedding = await TitleMatcher.get_embedding_from_ollama_async(TitleMatcher.normalize_title(job_title))
     
+    # Extract all history titles for the "Management Amnesty" check
+    all_history_titles = [
+        exp.get("title") for exp in experience_list 
+        if isinstance(exp, dict) and exp.get("title")
+    ]
+
     titles_to_check = []
     if candidate_profession and candidate_profession.strip():
         titles_to_check.append({"title": candidate_profession.strip(), "source": "primary_profession"})
@@ -481,11 +546,15 @@ async def calculate_title_match_with_history_async(
     # 2. Process all comparisons concurrently
     tasks = []
     for item in titles_to_check:
+        # We need to pass history_titles to compute_keyword_boost, but compute_detailed_match_async
+        # doesn't support it yet. We need to modify compute_detailed_match_async or handle it here.
+        # Let's modify compute_detailed_match_async to accept history_titles.
         tasks.append(
             TitleMatcher.compute_detailed_match_async(
                 job_title=job_embedding, # Pass the tuple
                 resume_titles=[item["title"]],
-                job_title_text=job_title
+                job_title_text=job_title,
+                history_titles=all_history_titles # <--- NEW: Pass history for amnesty check
             )
         )
     
