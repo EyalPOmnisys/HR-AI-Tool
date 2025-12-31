@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,22 +78,75 @@ class MatchService:
         # Map resume_id -> JobCandidate
         existing_candidates_map = {c.resume_id: c for c in existing_candidates}
         
-        # STEP 1: Ensemble Retrieval (Stage 1) - Get Large Pool
-        logger.info("STEP 1: Ensemble Retrieval & Scoring (Large Pool)")
+        # STEP 1: Smart Ensemble Retrieval (Stage 1)
+        logger.info("STEP 1: Smart Ensemble Retrieval & Scoring")
         logger.info("-" * 80)
+
+        # Check if job changed since last calculation
+        last_calculated_at = None
+        if existing_candidates:
+            for cand in existing_candidates:
+                if cand.analysis_json and "calculated_at" in cand.analysis_json:
+                    try:
+                        last_calculated_at = datetime.fromisoformat(cand.analysis_json["calculated_at"])
+                        break
+                    except (ValueError, TypeError):
+                        continue
         
-        # We ask for a large limit to get all potential candidates
-        candidates_pool = await search_and_score_candidates(
-            session=session,
-            job=job,
-            limit=10000,  # Get all matches
-            exclude_resume_ids=set() # Re-score everyone to ensure consistent ranking
-        )
+        job_changed = False
+        if not last_calculated_at:
+            job_changed = True
+            logger.info("No previous calculation timestamp found. Running FULL calculation.")
+        elif job.updated_at > last_calculated_at:
+            job_changed = True
+            logger.info(f"Job updated ({job.updated_at}) after last calculation ({last_calculated_at}). Running FULL calculation.")
+        else:
+            logger.info("Job unchanged. Running DELTA calculation.")
+
+        candidates_pool = []
         
-        logger.info(f"Ensemble scoring found {len(candidates_pool)} candidates")
+        if job_changed:
+            # FULL RECALCULATION
+            if existing_candidates:
+                logger.info("Clearing existing LLM scores due to job change...")
+                for cand in existing_candidates:
+                    cand.llm_score = None
+                    cand.llm_verdict = None
+                    cand.llm_strengths = None
+                    cand.llm_concerns = None
+            
+            candidates_pool = await search_and_score_candidates(
+                session=session,
+                job=job,
+                limit=10000,
+                exclude_resume_ids=set()
+            )
+        else:
+            # DELTA CALCULATION
+            existing_resume_ids = {c.resume_id for c in existing_candidates}
+            
+            stmt_all = select(Resume.id).where(Resume.extraction_json.isnot(None))
+            all_resume_ids = (await session.execute(stmt_all)).scalars().all()
+            
+            new_resume_ids = [rid for rid in all_resume_ids if rid not in existing_resume_ids]
+            
+            if new_resume_ids:
+                logger.info(f"Found {len(new_resume_ids)} new resumes to score.")
+                candidates_pool = await search_and_score_candidates(
+                    session=session,
+                    job=job,
+                    limit=10000,
+                    specific_resume_ids=new_resume_ids
+                )
+            else:
+                logger.info("No new resumes found.")
+                candidates_pool = []
+        
+        logger.info(f"Ensemble scoring processed {len(candidates_pool)} candidates")
         
         # STEP 1.5: Persist Stage 1 Scores (RAG)
-        # We update the DB with the latest RAG scores
+        current_time_iso = datetime.now(timezone.utc).isoformat()
+
         for cand_data in candidates_pool:
             resume_id = cand_data["resume_id"]
             rag_score = cand_data["rag_score"]
@@ -113,10 +167,11 @@ class MatchService:
             # Update Stage 1 info
             job_candidate.rag_score = rag_score
             
-            # Update analysis_json (preserve existing fields if any)
+            # Update analysis_json
             current_analysis = dict(job_candidate.analysis_json) if job_candidate.analysis_json else {}
             current_analysis["rag_breakdown"] = breakdown
             current_analysis["stability"] = stability_detail
+            current_analysis["calculated_at"] = current_time_iso
             job_candidate.analysis_json = current_analysis
             
         await session.commit()
@@ -197,10 +252,12 @@ class MatchService:
         pool_map = {c["resume_id"]: c for c in candidates_pool}
         
         for jc in existing_candidates_map.values():
-            if jc.resume_id in pool_map:
-                data = await reconstruct_candidate_data(jc, pool_map[jc.resume_id])
-                if data:
-                    all_candidates_data.append(data)
+            # Even if not in current pool (delta run), we want to include existing candidates
+            pool_info = pool_map.get(jc.resume_id, {})
+            
+            data = await reconstruct_candidate_data(jc, pool_info)
+            if data:
+                all_candidates_data.append(data)
         
         # Sort by RAG Score (Stage 1) to prioritize checking
         all_candidates_data.sort(key=lambda x: x["rag_score"], reverse=True)

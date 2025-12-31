@@ -49,6 +49,18 @@ def get_resume(resume_id: UUID, db: Session = Depends(get_db)):
     return ResumeDetail(**resume)
 
 
+@router.post("/bulk", response_model=list[ResumeDetail])
+def get_bulk_resumes(
+    resume_ids: list[UUID],
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch detailed data for multiple resumes in a single request.
+    """
+    details = resume_service.get_bulk_resume_details(db, resume_ids)
+    return [ResumeDetail(**d) for d in details]
+
+
 @router.get("/{resume_id}/file")
 def preview_resume(resume_id: UUID, db: Session = Depends(get_db)):
     """

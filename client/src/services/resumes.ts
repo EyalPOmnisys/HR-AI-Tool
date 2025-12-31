@@ -107,6 +107,24 @@ export async function getResumeDetail(resumeId: string): Promise<ResumeDetail> {
   return mapDetail(data);
 }
 
+export async function getResumesBulk(resumeIds: string[]): Promise<ResumeDetail[]> {
+  if (resumeIds.length === 0) return [];
+  
+  const res = await fetch(`${API_URL}/resumes/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(resumeIds),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch bulk resumes (${res.status}): ${text}`);
+  }
+
+  const data: ApiResumeDetail[] = await res.json();
+  return data.map(mapDetail);
+}
+
 export async function deleteResume(resumeId: string): Promise<void> {
   const res = await fetch(`${API_URL}/resumes/${resumeId}`, {
     method: 'DELETE',

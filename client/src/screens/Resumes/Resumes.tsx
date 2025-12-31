@@ -6,7 +6,7 @@ import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
 import { ResumeFilters, type FilterState } from '../../components/Resume/ResumeFilters/ResumeFilters'
 import { ResumeTable, type TimeFilter } from '../../components/Resume/ResumeTable/ResumeTable'
 import { ResumeTableSkeleton } from '../../components/Resume/ResumeTable/ResumeTableSkeleton'
-import { getResumeDetail, listResumes, deleteResume, analyzeSearchQuery } from '../../services/resumes'
+import { getResumeDetail, listResumes, deleteResume, analyzeSearchQuery, getResumesBulk } from '../../services/resumes'
 import type { ResumeDetail, ResumeSummary } from '../../types/resume'
 import styles from './Resumes.module.css'
 
@@ -315,15 +315,18 @@ export const Resumes = (): ReactElement => {
     if (paginatedResumes.length === 0) return
 
     const fetchDetailsForPage = async () => {
-      const itemsToFetch = paginatedResumes.filter(r => !r.searchableText)
+      const itemsToFetch = paginatedResumes.filter(r => r.searchableText === undefined)
       
       if (itemsToFetch.length === 0) return
 
-      const detailPromises = itemsToFetch.map(async (item) => {
-        try {
-          const detail = await getResumeDetail(item.id)
+      try {
+        const ids = itemsToFetch.map(r => r.id)
+        const details = await getResumesBulk(ids)
 
-          const experienceText = detail.experience
+        if (!isMounted) return
+
+        const updates = details.map(detail => {
+            const experienceText = detail.experience
               .map((e) =>
                 [e.company, e.title, e.location, ...(e.bullets || []), ...(e.tech || [])]
                   .filter(Boolean)
@@ -345,37 +348,40 @@ export const Resumes = (): ReactElement => {
               .join(' ')
               .toLowerCase()
 
-          return {
-            id: item.id,
-            skills: detail.skills.map((s) => s.name),
-            summary: detail.summary,
-            searchableText,
-            createdAt: detail.createdAt,
-            yearsByCategory: detail.yearsByCategory,
-          }
-        } catch {
-          return null
-        }
-      })
+            return {
+              id: detail.id,
+              skills: detail.skills.map((s) => s.name),
+              summary: detail.summary,
+              searchableText,
+              createdAt: detail.createdAt,
+              yearsByCategory: detail.yearsByCategory,
+            }
+        })
 
-      const details = await Promise.all(detailPromises)
-
-      if (isMounted) {
-        setAllResumes((prev) =>
-          prev.map((r) => {
-            const d = details.find((det) => det?.id === r.id)
-            return d
-              ? {
-                  ...r,
-                  skills: d.skills,
-                  summary: d.summary,
-                  searchableText: d.searchableText,
-                  createdAt: d.createdAt,
-                  yearsByCategory: d.yearsByCategory,
-                }
-              : r
+        setAllResumes((prev) => {
+          const next = [...prev]
+          updates.forEach((update) => {
+            const idx = next.findIndex((r) => r.id === update.id)
+            if (idx !== -1) {
+              next[idx] = { ...next[idx], ...update }
+            }
           })
-        )
+          return next
+        })
+      } catch (err) {
+        console.error("Bulk fetch failed", err)
+        if (isMounted) {
+             setAllResumes((prev) => {
+                const next = [...prev]
+                itemsToFetch.forEach((item) => {
+                    const idx = next.findIndex((r) => r.id === item.id)
+                    if (idx !== -1) {
+                        next[idx] = { ...next[idx], searchableText: '' }
+                    }
+                })
+                return next
+            })
+        }
       }
     }
 

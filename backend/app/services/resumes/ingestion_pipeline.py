@@ -242,7 +242,19 @@ def get_resume_detail(db: Session, resume_id: UUID) -> Optional[dict[str, Any]]:
     resume = resume_repo.get_resume(db, resume_id)
     if not resume:
         return None
+    return _format_resume_detail(resume)
 
+
+def get_bulk_resume_details(db: Session, resume_ids: list[UUID]) -> list[dict[str, Any]]:
+    results = []
+    for rid in resume_ids:
+        resume = resume_repo.get_resume(db, rid)
+        if resume:
+            results.append(_format_resume_detail(resume))
+    return results
+
+
+def _format_resume_detail(resume: Resume) -> dict[str, Any]:
     extraction = resume.extraction_json or {}
     person = extraction.get("person") or {}
 
@@ -264,7 +276,7 @@ def get_resume_detail(db: Session, resume_id: UUID) -> Optional[dict[str, Any]]:
     if primary_years is None and isinstance(totals_by_category, dict):
         primary_years = totals_by_category.get("tech")
 
-    detail = {
+    return {
         "id": resume.id,
         "name": _clean(person.get("name")) or _infer_name_from_path(resume.file_path),
         "profession": _extract_profession(
@@ -278,7 +290,7 @@ def get_resume_detail(db: Session, resume_id: UUID) -> Optional[dict[str, Any]]:
         "file_name": Path(resume.file_path).name if resume.file_path else None,
         "mime_type": resume.mime_type,
         "file_size": resume.file_size,
-        "summary": None,
+        "summary": extraction.get("summary"),
         "contacts": contacts,
         "skills": skills,
         "experience": experience_entries,
@@ -290,7 +302,6 @@ def get_resume_detail(db: Session, resume_id: UUID) -> Optional[dict[str, Any]]:
         "years_by_category": totals_by_category or {},
         "primary_years": primary_years,
     }
-    return detail
 
 
 # ----------------------------- Helpers -----------------------------

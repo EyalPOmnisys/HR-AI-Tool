@@ -53,7 +53,48 @@ export default function JobDetails({ jobId, onBack }: Props) {
     loadData();
   }, [jobId]);
 
-  if (loading) return <JobDetailsSkeleton />;
+  const BackButton = () => (
+    <button 
+      onClick={onBack}
+      style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '0.5rem',
+        color: '#3b82f6',
+        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+        border: '1px solid #e2e8f0',
+        borderRadius: '10px',
+        padding: '12px 18px',
+        cursor: 'pointer',
+        marginBottom: '1.5rem',
+        fontSize: '0.95rem',
+        fontWeight: 600,
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.04)',
+        transition: 'all 0.2s ease'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+        e.currentTarget.style.borderColor = '#cbd5e1';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.08)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
+        e.currentTarget.style.borderColor = '#e2e8f0';
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.04)';
+      }}
+    >
+      <FiArrowLeft size={18} /> Back to Jobs
+    </button>
+  );
+
+  if (loading) return (
+    <div style={{ padding: '2rem clamp(1.5rem, 4vw, 3.5rem)', width: '100%' }}>
+      <BackButton />
+      <JobDetailsSkeleton />
+    </div>
+  );
   if (error) return <div style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>{error}</div>;
   if (!job) return <div style={{ padding: '2rem', textAlign: 'center' }}>Job not found</div>;
 
@@ -130,39 +171,7 @@ export default function JobDetails({ jobId, onBack }: Props) {
 
   return (
     <div style={{ padding: '2rem clamp(1.5rem, 4vw, 3.5rem)', width: '100%' }}>
-      <button 
-        onClick={onBack}
-        style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '0.5rem',
-          color: '#3b82f6',
-          background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-          border: '1px solid #e2e8f0',
-          borderRadius: '10px',
-          padding: '12px 18px',
-          cursor: 'pointer',
-          marginBottom: '1.5rem',
-          fontSize: '0.95rem',
-          fontWeight: 600,
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.04)',
-          transition: 'all 0.2s ease'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
-          e.currentTarget.style.borderColor = '#cbd5e1';
-          e.currentTarget.style.transform = 'translateY(-1px)';
-          e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.08)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
-          e.currentTarget.style.borderColor = '#e2e8f0';
-          e.currentTarget.style.transform = 'translateY(0)';
-          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.04)';
-        }}
-      >
-        <FiArrowLeft size={18} /> Back to Jobs
-      </button>
+      <BackButton />
 
       <div style={headerCardStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>

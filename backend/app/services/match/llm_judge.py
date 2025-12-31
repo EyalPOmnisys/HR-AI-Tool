@@ -387,14 +387,16 @@ class LLMJudge:
                 content_dict = response.data
                 
                 # Handle 'evaluations', 'evaluation_list', and singular 'evaluation' keys
-                evaluations = content_dict.get("evaluations")
-                if not evaluations:
-                    evaluations = content_dict.get("evaluation_list")
-                if not evaluations:
-                    evaluations = content_dict.get("evaluation", [])
+                evaluations = []
+                
+                # Try all known keys
+                for key in ["evaluations", "evaluation_list", "candidates", "matches", "results", "evaluation"]:
+                    if key in content_dict and isinstance(content_dict[key], list):
+                        evaluations = content_dict[key]
+                        break
                 
                 if not evaluations:
-                    logger.warning(f"⚠️  LLM returned valid JSON but no 'evaluations' list. Keys found: {list(content_dict.keys())}")
+                    logger.warning(f"⚠️  LLM returned valid JSON but no recognized list key. Keys found: {list(content_dict.keys())}")
                     if attempt < max_retries:
                         continue
 
@@ -415,11 +417,15 @@ class LLMJudge:
                     resume_id = ev.get("resume_id", "unknown")
                     
                     # FIX: Handle different score keys (final_score vs match_score vs score)
-                    final_score = ev.get("final_score")
+                    final_score = None
+                    for score_key in ["final_score", "match_score", "fit_score", "score", "overall_score", "rating", "overall_fit_score"]:
+                        if score_key in ev:
+                            final_score = ev[score_key]
+                            break
+                    
                     if final_score is None:
-                        final_score = ev.get("match_score")
-                    if final_score is None:
-                        final_score = ev.get("score", 0)
+                        logger.warning(f"⚠️  No score found for candidate {resume_id}. Keys: {list(ev.keys())}")
+                        final_score = 0
                     
                     # Find candidate name from input
                     candidate_name = "Unknown"
@@ -497,16 +503,17 @@ class LLMJudge:
             
             if evaluation:
                 # Stage 2 LLM score (Handle both keys)
-                stage2_score = evaluation.get("final_score")
-                if stage2_score is None:
-                    stage2_score = evaluation.get("match_score")
-                if stage2_score is None:
-                    stage2_score = evaluation.get("fit_score")
-                if stage2_score is None:
-                    stage2_score = evaluation.get("score", 0)
+                stage2_score = None
+                for score_key in ["final_score", "match_score", "fit_score", "score", "overall_score", "rating", "overall_fit_score"]:
+                    if score_key in evaluation:
+                        stage2_score = evaluation[score_key]
+                        break
                 
-                # Blend scores: 30% Stage 1 (ensemble) + 70% Stage 2 (LLM)
-                blended_final_score = int((stage1_score * 0.3) + (stage2_score * 0.7))
+                if stage2_score is None:
+                    stage2_score = 0
+                
+                # Use LLM score directly as final score (100% Stage 2)
+                blended_final_score = int(stage2_score)
                 
                 # Handle text fields (strengths/concerns vs match_reasoning)
                 strengths = evaluation.get("strengths")

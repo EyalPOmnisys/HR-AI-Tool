@@ -44,7 +44,8 @@ async def search_and_score_candidates(
     session: AsyncSession,
     job: Job,
     limit: int = 50,
-    exclude_resume_ids: set[UUID] | None = None
+    exclude_resume_ids: set[UUID] | None = None,
+    specific_resume_ids: List[UUID] | None = None
 ) -> List[Dict[str, Any]]:
     """
     Main ensemble scorer combining multiple algorithms.
@@ -62,6 +63,7 @@ async def search_and_score_candidates(
         job: Job to match candidates against
         limit: Number of top candidates to return after scoring ALL
         exclude_resume_ids: Set of resume IDs to exclude from search (already reviewed)
+        specific_resume_ids: List of specific resume IDs to score (for delta updates)
         
     Returns:
         List of top N candidate dicts with scores, breakdown, and metadata
@@ -69,7 +71,12 @@ async def search_and_score_candidates(
     logger.info("=" * 80)
     logger.info(f"ENSEMBLE SCORING: Job '{job.title}' (id={job.id})")
     logger.info("=" * 80)
-    logger.info(f"Will score ALL candidates and return top {limit}")
+    
+    if specific_resume_ids:
+        logger.info(f"Scoring SPECIFIC {len(specific_resume_ids)} candidates (Delta Update)")
+    else:
+        logger.info(f"Will score ALL candidates and return top {limit}")
+        
     if exclude_resume_ids:
         logger.info(f"Excluding {len(exclude_resume_ids)} already-reviewed candidates")
     logger.info("")
@@ -78,7 +85,10 @@ async def search_and_score_candidates(
     logger.info("Stage 1: Candidate selection (no RAG) - loading resumes from DB...")
 
     stmt = select(Resume).where(Resume.extraction_json.isnot(None))
-    if exclude_resume_ids:
+    
+    if specific_resume_ids:
+        stmt = stmt.where(Resume.id.in_(specific_resume_ids))
+    elif exclude_resume_ids:
         stmt = stmt.where(~Resume.id.in_(exclude_resume_ids))
 
     # Load candidates to score (DB selection is the only filtering stage)
