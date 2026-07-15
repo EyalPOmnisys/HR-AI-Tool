@@ -32,9 +32,17 @@ DEFAULT_CHAT_OPTIONS: Dict[str, Any] = {
     "temperature": 0,
     "seed": 7,
     "repeat_penalty": 1.05,
-    "num_ctx": 8192,
+    # 8192 was too tight: the resume-extraction prompt + a mid-size resume alone
+    # consume ~4200 input tokens, leaving too little room for the JSON output.
+    "num_ctx": 16384,
     "num_predict": 2048,
 }
+
+# Reasoning-capable models (e.g. gemma4) burn the whole num_predict budget on
+# internal "thinking" before emitting content, and degenerate into repetition
+# loops under format:"json". Disabling thinking makes them answer directly;
+# non-thinking models (e.g. gemma3) simply ignore the flag.
+OLLAMA_DISABLE_THINKING = True
 
 
 def _require_api_key() -> str:
@@ -171,12 +179,13 @@ class LLMClient:
                 "model": self.model,
                 "messages": messages,
                 "stream": False,
+                "think": not OLLAMA_DISABLE_THINKING,
                 "options": merged_options,
                 "keep_alive": "30m",
             }
             response = requests.post(self.chat_url, json=payload, timeout=timeout)
             response.raise_for_status()
-            
+
             content = response.json().get("message", {}).get("content", "").strip()
             logger.debug("🤖 Ollama chat_text received %d chars", len(content))
             return content
@@ -197,6 +206,7 @@ class LLMClient:
                 "messages": messages,
                 "format": "json",
                 "stream": False,
+                "think": not OLLAMA_DISABLE_THINKING,
                 "options": merged_options,
                 "keep_alive": "30m",
             }
