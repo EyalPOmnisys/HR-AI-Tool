@@ -39,9 +39,16 @@ Determine if this is a "Tech Role" or not.
    - Extract years if mentioned.
    - If specific experience is required (e.g., "Experience in payroll"), add it to `skills.must_have`.
 
+5. **Icon:**
+   - Pick EXACTLY ONE emoji that best represents the role's domain, for display on the job card.
+   - Examples: 📊 Product/Data, 🖥️ Software Dev, 🔒 Cyber, ☁️ Cloud/DevOps, 🤖 AI/ML, 📱 Mobile,
+     🧪 QA, 🎨 Design, 📣 Marketing, 💼 Sales/Business, 🧑‍💼 HR, 💰 Finance, ⚙️ Hardware/Embedded, 📡 Networking.
+   - You may choose a different emoji if it fits the role better. Output the emoji character itself, never words.
+
 ### OUTPUT FORMAT (JSON ONLY):
 {
     "role_title": "string",
+    "icon": "one emoji",
     "is_tech_role": true,
     "organization": "string",
     "summary": "1-2 sentences summary",

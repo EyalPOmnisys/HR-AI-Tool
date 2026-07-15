@@ -16,6 +16,17 @@ from app.services.common.text_normalizer import normalize_text_for_fts, approx_t
 
 logger = logging.getLogger("jobs.service")
 
+
+def _is_valid_icon(icon: str | None) -> bool:
+    """A usable job-card icon is a short non-ASCII string (emoji).
+
+    Plain words like "briefcase" render as broken text on the card.
+    """
+    if not icon or not icon.strip():
+        return False
+    icon = icon.strip()
+    return len(icon) <= 8 and not icon.isascii()
+
 def create_job(
     db: Session,
     *,
@@ -94,6 +105,12 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         job.analysis_json = analysis_json
         job.analysis_model = model_name
         job.analysis_version = version
+
+        # Let the AI pick the job-card emoji unless the user already chose a valid one.
+        ai_icon = (analysis_json.get("icon") or "").strip()
+        if not _is_valid_icon(job.icon) and _is_valid_icon(ai_icon):
+            job.icon = ai_icon
+            logger.info("AI-selected icon for job '%s': %s", job.title, ai_icon)
 
         summary = (analysis_json.get("summary") or "").strip()
         normalized = normalize_text_for_fts(job.title, summary, job.job_description, job.free_text or "")

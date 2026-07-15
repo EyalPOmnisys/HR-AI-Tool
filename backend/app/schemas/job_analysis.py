@@ -40,6 +40,7 @@ class SecurityClearance(BaseModel):
 class JobAnalysis(BaseModel):
     version: int = 1
     role_title: Optional[str] = None
+    icon: Optional[str] = Field(default=None, description="Single emoji representing the role's domain, shown on the job card")
     is_tech_role: bool = Field(default=True, description="True if the role is technical (R&D, QA, Data, Engineering), False otherwise")
     organization: Optional[str] = None
     locations: List[str] = Field(default_factory=list)
