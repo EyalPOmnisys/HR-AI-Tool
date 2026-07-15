@@ -10,6 +10,15 @@ import { getResumeDetail, listResumes, deleteResume, analyzeSearchQuery, getResu
 import type { ResumeDetail, ResumeSummary } from '../../types/resume'
 import styles from './Resumes.module.css'
 
+// Split a filter chip into OR-alternatives. Supports "C++ OR C#", "C++ | C#",
+// "C++, C#" and the Hebrew "C++ או C#". A chip with no separator is a single term.
+function splitOrGroup(chip: string): string[] {
+  return chip
+    .split(/\s+OR\s+|\s+או\s+|\||,/i)
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+}
+
 export const Resumes = (): ReactElement => {
   const [allResumes, setAllResumes] = useState<(ResumeSummary & { searchableText?: string })[]>([])
   const [query, setQuery] = useState<string>('')
@@ -18,6 +27,7 @@ export const Resumes = (): ReactElement => {
     minExperience: '',
     maxExperience: '',
     skills: [],
+    skillsMatchMode: 'all',
     freeText: [],
     excludeKeywords: []
   })
@@ -50,6 +60,7 @@ export const Resumes = (): ReactElement => {
         minExperience: newFilters.minExperience || '',
         maxExperience: newFilters.maxExperience || '',
         skills: newFilters.skills || [],
+        skillsMatchMode: 'all',
         freeText: newFilters.freeText || [],
         excludeKeywords: newFilters.excludeKeywords || []
       })
@@ -218,34 +229,39 @@ export const Resumes = (): ReactElement => {
       result = result.filter(r => {
         if (!r.skills || r.skills.length === 0) return false
         const resumeSkills = r.skills.map(s => s.toLowerCase())
-        return filters.skills.every(filterSkill => 
-          resumeSkills.some(rs => rs.includes(filterSkill.toLowerCase()))
-        )
+        // A chip matches if the candidate has any of its OR-alternatives.
+        const chipMatches = (filterSkill: string) => {
+          const alternatives = splitOrGroup(filterSkill)
+          return alternatives.some(alt => resumeSkills.some(rs => rs.includes(alt)))
+        }
+        // ANY (OR): candidate needs at least one chip. ALL (AND): needs every chip.
+        return filters.skillsMatchMode === 'any'
+          ? filters.skills.some(chipMatches)
+          : filters.skills.every(chipMatches)
       })
     }
 
     if (filters.freeText.length > 0) {
       result = result.filter((r) => {
-        return filters.freeText.every(keyword => {
-          if (!keyword.trim()) return false
-          
-          // Construct a searchable text blob
-          const searchableText = [
-            r.summary,
-            r.name,
-            r.profession,
-            ...(r.skills || []),
-            r.searchableText
-          ].filter(Boolean).join(' ').toLowerCase()
+        // Construct a searchable text blob
+        const searchableText = [
+          r.summary,
+          r.name,
+          r.profession,
+          ...(r.skills || []),
+          r.searchableText
+        ].filter(Boolean).join(' ').toLowerCase()
 
-          // Escape special regex characters to prevent crashes
-          const escapedKeyword = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          
-          // \b ensures word boundaries. 
-          // "ai" matches "ai" but NOT "Liaison" or "explain"
-          const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i')
-          
-          return regex.test(searchableText)
+        // Each chip must match (AND); "OR"/"|"/","/"או" inside a chip is an OR-group.
+        return filters.freeText.every(keyword => {
+          const alternatives = splitOrGroup(keyword)
+          if (alternatives.length === 0) return false
+          return alternatives.some(alt => {
+            const escaped = alt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const startBoundary = /^\w/.test(alt) ? '\\b' : ''
+            const endBoundary = /\w$/.test(alt) ? '\\b' : ''
+            return new RegExp(`${startBoundary}${escaped}${endBoundary}`, 'i').test(searchableText)
+          })
         })
       })
     }

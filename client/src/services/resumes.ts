@@ -152,6 +152,7 @@ export async function analyzeSearchQuery(query: string): Promise<FilterState> {
     minExperience: data.min_experience?.toString() || '',
     maxExperience: data.max_experience?.toString() || '',
     skills: data.skills || [],
+    skillsMatchMode: 'all',
     freeText: data.free_text ? [data.free_text] : [],
     excludeKeywords: data.exclude_keywords || []
   };

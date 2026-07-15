@@ -12,11 +12,14 @@ const COMMON_SKILLS = [
   "Docker", "AWS", "TypeScript", "Java", "C++"
 ]
 
+export type MatchMode = 'all' | 'any'
+
 export interface FilterState {
   profession: string[]
   minExperience: string
   maxExperience: string
   skills: string[]
+  skillsMatchMode: MatchMode
   freeText: string[]
   excludeKeywords: string[]
 }
@@ -38,6 +41,7 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
     minExperience: '',
     maxExperience: '',
     skills: [],
+    skillsMatchMode: 'all',
     freeText: [],
     excludeKeywords: []
   })
@@ -129,6 +133,7 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
       minExperience: '',
       maxExperience: '',
       skills: [],
+      skillsMatchMode: 'all',
       freeText: [],
       excludeKeywords: []
     }
@@ -362,7 +367,29 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
         </button>
         {activeDropdown === 'skills' && (
           <div className={styles.popover}>
-            <label className={styles.label}>Skills</label>
+            <div className={styles.matchModeRow}>
+              <label className={styles.label} style={{ margin: 0 }}>Skills</label>
+              {filters.skills.length > 1 && (
+                <div className={styles.matchModeToggle} role="group" aria-label="Skills match mode">
+                  <button
+                    type="button"
+                    className={`${styles.matchModeButton} ${filters.skillsMatchMode === 'all' ? styles.matchModeActive : ''}`}
+                    onClick={() => updateFilters({ ...filters, skillsMatchMode: 'all' })}
+                    title="Candidate must have ALL selected skills"
+                  >
+                    ALL <span className={styles.matchModeHint}>AND</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.matchModeButton} ${filters.skillsMatchMode === 'any' ? styles.matchModeActive : ''}`}
+                    onClick={() => updateFilters({ ...filters, skillsMatchMode: 'any' })}
+                    title="Candidate needs ANY one of the selected skills"
+                  >
+                    ANY <span className={styles.matchModeHint}>OR</span>
+                  </button>
+                </div>
+              )}
+            </div>
             <div className={styles.inputGroup}>
               <input
                 type="text"
