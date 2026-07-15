@@ -30,7 +30,6 @@ logging.basicConfig(
 logging.getLogger("match.service").setLevel(logging.INFO)
 logging.getLogger("match.judge").setLevel(logging.INFO)
 logging.getLogger("jobs.pipeline").setLevel(logging.INFO)
-logging.getLogger("jobs.chunker").setLevel(logging.INFO)
 
 # Reduce noise from external libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)

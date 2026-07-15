@@ -1,5 +1,5 @@
-"""High-level Job service: CRUD plus AI enrichment (analysis, normalization,
-chunking, embeddings) coordinating submodules into a single pipeline."""
+"""High-level Job service: CRUD plus AI enrichment (analysis, normalization)
+coordinating submodules into a single pipeline."""
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -9,14 +9,10 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.job import Job, EMBED_DIM
+from app.models.job import Job
 from app.repositories import job_repo
 from app.services.jobs.analyzer import analyze_job_text
-from app.services.jobs.chunker import build_chunks_from_analysis
-from app.services.jobs.embedding_pipeline import create_and_embed_chunks
 from app.services.common.text_normalizer import normalize_text_for_fts, approx_token_count
-from app.services.common.embedding_client import default_embedding_client
-from app.core.config import settings
 
 logger = logging.getLogger("jobs.service")
 
@@ -103,30 +99,6 @@ def analyze_and_attach_job(db: Session, job_id: UUID) -> Optional[Job]:
         normalized = normalize_text_for_fts(job.title, summary, job.job_description, job.free_text or "")
         job.normalized_text = normalized
         job.tokens = approx_token_count(normalized)
-
-        combined_text = " ".join([t for t in [job.title, summary, job.job_description, job.free_text] if t])
-        embedding = default_embedding_client.embed(combined_text)
-        try:
-            if len(embedding) != EMBED_DIM:
-                logger.warning("Job-level vector dim mismatch: expected %d got %d", EMBED_DIM, len(embedding))
-        except Exception:
-            logger.exception("Job-level vector dimension check failed")
-        job.embedding = embedding
-
-        chunk_defs = build_chunks_from_analysis(
-            title=job.title,
-            job_description=job.job_description,
-            free_text=job.free_text,
-            analysis=analysis_json,
-        )
-
-        create_and_embed_chunks(
-            db,
-            job=job,
-            chunk_defs=chunk_defs,
-            embedding_model=default_embedding_client.model,
-            batch_size=64,
-        )
 
         job.ai_finished_at = datetime.now(timezone.utc)
         job.ai_error = None

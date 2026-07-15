@@ -1,4 +1,4 @@
-"""End-to-end resume ingestion handling parsing, extraction, chunking, embedding, and API response formatting from upload to searchable data."""
+"""End-to-end resume ingestion handling parsing, extraction, and API response formatting from upload to searchable data."""
 # -----------------------------------------------------------------------------
 # CHANGELOG (English-only comments)
 # - get_resume_detail(): expose years_by_category (from extraction_json.experience_meta.totals_by_category)
@@ -17,22 +17,15 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.resume import Resume
 from app.repositories import resume_repo
-from app.services.common.embedding_client import default_embedding_client
 from app.services.resumes.parsing_utils import (
     read_file_bytes,
     detect_mime,
     sha256_of_bytes,
     parse_to_text,
-    chunk_resume_text,
 )
 from app.services.resumes.extraction_pipeline import extract_structured
-from app.services.resumes.embedding_utils import (
-    enrich_chunk_for_embedding,
-    create_search_optimized_embedding_text,
-)
 from app.services.resumes.validation import validate_extraction, create_quality_report
 
 
@@ -171,59 +164,6 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
             raise e
         resume_repo.set_status(db, resume, status="error", error=str(e))
         raise
-
-
-def chunk_and_embed(db: Session, resume: Resume) -> Resume:
-    if not resume.parsed_text:
-        return resume
-
-    chunks = chunk_resume_text(resume.parsed_text)
-    chunks = resume_repo.bulk_add_chunks(db, resume, chunks)
-
-    # Get person name from extraction for enrichment
-    extraction = resume.extraction_json or {}
-    person = extraction.get("person", {})
-    person_name = person.get("name")
-
-    # Create optimized full-resume embedding
-    try:
-        full_text = create_search_optimized_embedding_text(resume)
-        full_emb = default_embedding_client.embed(full_text)
-        resume_repo.attach_resume_embedding(db, resume, embedding=full_emb)
-    except Exception as e:
-        resume_repo.set_status(
-            db,
-            resume,
-            status="parsed",
-            error=f"full embedding failed: {e}",
-        )
-
-    # Embed each chunk with enrichment
-    resume_repo.set_status(db, resume, status="embedding")
-    model = default_embedding_client.model
-    version = getattr(settings, "ANALYSIS_VERSION", None)
-
-    any_failure = False
-    for ch in chunks:
-        try:
-            # Enrich chunk text with context for better embeddings
-            enriched_text = enrich_chunk_for_embedding(
-                chunk=ch,
-                resume=resume,
-                person_name=person_name,
-                extraction_json=extraction
-            )
-            
-            emb = default_embedding_client.embed(enriched_text)
-            resume_repo.upsert_chunk_embedding(
-                db, ch, embedding=emb, model=model, version=version
-            )
-        except Exception as e:
-            any_failure = True
-            resume_repo.note_chunk_error(db, ch, error=str(e))
-
-    resume_repo.set_status(db, resume, status=("ready" if not any_failure else "warning"))
-    return resume
 
 
 # ---------------------------------------------------------------------
@@ -831,11 +771,6 @@ def run_full_ingestion(db: Session, path: Path) -> Resume:
         if resume.status == "duplicate":
             return resume
             
-        # --- SKIP EMBEDDING (Optimization) ---
-        # The matching logic uses structured JSON data, not vector search.
-        # Skipping this saves API costs and time.
-        # resume = chunk_and_embed(db, resume)
-        
         # FIX 2: Only mark as READY if it was successfully parsed.
         # If parse_and_extract marked it as 'warning' (e.g. no name found), keep it as 'warning'.
         if resume.status == "parsed":

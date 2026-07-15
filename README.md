@@ -3,19 +3,19 @@
 ## 1. General Overview
 
 ### Project Description
-**HR-AI-Tool** is an advanced recruitment platform designed to automate and enhance the process of matching candidates to job descriptions. Unlike traditional keyword matching, this system utilizes **Generative AI (LLMs)** and **Vector Search (RAG)** to understand the semantic meaning of resumes and job requirements, supporting both English and Hebrew.
+**HR-AI-Tool** is an advanced recruitment platform designed to automate and enhance the process of matching candidates to job descriptions. Unlike traditional keyword matching, this system utilizes **Generative AI (LLMs)** and **semantic scoring** to understand the meaning of resumes and job requirements, supporting both English and Hebrew.
 
 ### Core Capabilities
 1.  **Smart Resume Ingestion:** Automatically detects, parses, and structures resume data (PDF/DOCX) from a watched directory. It handles complex layouts and Hebrew RTL (Right-to-Left) text issues.
 2.  **Job Analysis:** Deconstructs job descriptions into structured criteria (skills, experience, tech stack) and searchable chunks.
 3.  **AI Matching Engine:** Performs a deep comparison between candidates and jobs using a hybrid approach:
-    *   **Vector Search:** Finds candidates conceptually related to the job.
-    *   **LLM Judge:** A "virtual recruiter" that evaluates candidates based on specific criteria (Stability, Experience, Skills).
+    *   **Ensemble Scoring:** Ranks every candidate deterministically by title match (semantic, via embeddings computed on the fly), experience, and skills.
+    *   **LLM Judge:** A "virtual recruiter" that evaluates top candidates based on specific criteria and provides textual justification.
 4.  **Recruiter Dashboard:** A visual interface to manage jobs, view parsed resumes, and analyze match scores with explanations.
 
 ### Technology Stack
 *   **Backend:** Python, FastAPI, SQLAlchemy, Alembic.
-*   **AI/ML:** OpenAI API, Vector Embeddings (pgvector), RAG (Retrieval-Augmented Generation).
+*   **AI/ML:** Local LLMs via Ollama (OpenAI-compatible fallback), on-the-fly embeddings for semantic title matching.
 *   **Frontend:** TypeScript, React, Vite.
 *   **Infrastructure:** Docker, Docker Compose, PostgreSQL.
 
@@ -36,17 +36,16 @@ The backend is built with **FastAPI** and follows a service-oriented architectur
 
 #### 2. Job Analysis Service
 *   **Normalization:** Takes raw job descriptions and converts them into a structured JSON schema (requirements, tech stack, seniority).
-*   **Chunking:** Breaks the job description into semantic "chunks" (e.g., "Responsibilities", "Tech Stack") to allow for precise vector matching against specific parts of a resume.
 
 #### 3. Matching Engine (The "Brain")
-*   **Retrieval (RAG):** Converts resumes and jobs into mathematical vectors (embeddings) to perform semantic searches in the database.
+*   **Ensemble Scoring:** Scores every candidate against the job's structured analysis — weighted combination of Title Match (semantic, via on-the-fly embeddings), Experience Duration, and Skills.
 *   **Scoring System:**
     *   **Hard Filters:** Checks for mandatory skills.
-    *   **Soft Scoring:** Calculates scores for "Employment Stability," "Title Match," and "Experience Duration."
+    *   **Red Flags:** Applies heavy penalties for poor title alignment.
     *   **LLM Judge:** An AI agent reviews the top candidates and provides a textual justification for why a candidate is a good or bad fit.
 
 #### 4. Data Layer
-*   Uses **PostgreSQL** with the `pgvector` extension to store both relational data (user info, structured resume fields) and vector embeddings for AI search.
+*   Uses **PostgreSQL** to store relational data (jobs, candidates, structured resume extractions as JSONB).
 
 ---
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import Optional, Tuple, Iterable
+from typing import Optional, Tuple
 from uuid import UUID
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
-from app.models.resume import Resume, ResumeChunk, ResumeEmbedding
+from app.models.resume import Resume
 
 
 def get_by_hash(db: Session, content_hash: str) -> Optional[Resume]:
@@ -42,42 +42,6 @@ def attach_extraction(db: Session, resume: Resume, *, extraction_json) -> Resume
     db.commit()
     db.refresh(resume)
     return resume
-
-
-def attach_resume_embedding(db: Session, resume: Resume, *, embedding: list[float]) -> Resume:
-    resume.embedding = embedding
-    db.add(resume)
-    db.commit()
-    db.refresh(resume)
-    return resume
-
-
-def bulk_add_chunks(db: Session, resume: Resume, chunks: Iterable[ResumeChunk]) -> list[ResumeChunk]:
-    for c in chunks:
-        c.resume_id = resume.id
-        db.add(c)
-    db.commit()
-    # refresh list
-    rows = db.execute(select(ResumeChunk).where(ResumeChunk.resume_id == resume.id).order_by(ResumeChunk.ord)).scalars().all()
-    return rows
-
-
-def upsert_chunk_embedding(db: Session, chunk: ResumeChunk, *, embedding: list[float], model: Optional[str], version: Optional[int]) -> ResumeEmbedding:
-    existing = db.execute(select(ResumeEmbedding).where(ResumeEmbedding.chunk_id == chunk.id)).scalar_one_or_none()
-    if existing:
-        existing.embedding = embedding
-        existing.embedding_model = model
-        existing.embedding_version = version
-        db.add(existing)
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    row = ResumeEmbedding(chunk_id=chunk.id, embedding=embedding, embedding_model=model, embedding_version=version)
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    return row
 
 
 def list_resumes(db: Session, *, offset: int = 0, limit: int = 20) -> Tuple[list[Resume], int]:
@@ -128,11 +92,7 @@ def update_resume_content(db: Session, resume: Resume, *, file_path: str, conten
     resume.extraction_json = extraction_json
     resume.mime_type = mime_type
     resume.file_size = file_size
-    resume.embedding = None  # Reset embedding
-    
-    # Clear existing chunks
-    db.query(ResumeChunk).filter(ResumeChunk.resume_id == resume.id).delete()
-    
+
     db.add(resume)
     db.commit()
     db.refresh(resume)
