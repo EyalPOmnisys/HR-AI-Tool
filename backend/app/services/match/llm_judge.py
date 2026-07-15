@@ -511,9 +511,16 @@ class LLMJudge:
                 
                 if stage2_score is None:
                     stage2_score = 0
-                
+
+                # Models may return the score as a float (e.g. 45.5) or a numeric
+                # string; response schemas and the DB column expect integers.
+                try:
+                    stage2_score = int(round(float(stage2_score)))
+                except (TypeError, ValueError):
+                    stage2_score = 0
+
                 # Use LLM score directly as final score (100% Stage 2)
-                blended_final_score = int(stage2_score)
+                blended_final_score = stage2_score
                 
                 # Handle text fields (strengths/concerns vs match_reasoning)
                 strengths = evaluation.get("strengths")
