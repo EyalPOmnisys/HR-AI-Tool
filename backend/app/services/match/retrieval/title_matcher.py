@@ -530,15 +530,18 @@ async def calculate_title_match_with_history_async(
 
     titles_to_check = []
     if candidate_profession and candidate_profession.strip():
-        titles_to_check.append({"title": candidate_profession.strip(), "source": "primary_profession"})
+        titles_to_check.append({"title": candidate_profession.strip(), "source": "primary_profession", "weight": 1.0})
 
     if experience_list:
-        for exp in experience_list[:top_n]:
+        for position, exp in enumerate(experience_list[:top_n]):
             if isinstance(exp, dict):
                 t = exp.get("title")
                 if t and t.strip():
                     if not any(x["title"].lower() == t.strip().lower() for x in titles_to_check):
-                        titles_to_check.append({"title": t.strip(), "source": "history"})
+                        # Older roles still count (career-changers!) but with a mild
+                        # recency discount: most recent 1.0, then 0.95, 0.90... floor 0.85.
+                        weight = max(0.85, 1.0 - 0.05 * position)
+                        titles_to_check.append({"title": t.strip(), "source": "history", "weight": weight})
     
     if not titles_to_check:
         return {"best_score": 0.0, "best_matching_title": None, "best_source": None, "all_scores": []}
@@ -563,12 +566,14 @@ async def calculate_title_match_with_history_async(
     
     scores = []
     for i, res in enumerate(results):
+        weight = titles_to_check[i].get("weight", 1.0)
         scores.append({
             "title": titles_to_check[i]["title"],
-            "score": round(res["score"], 1),
+            "score": round(res["score"] * weight, 1),
+            "raw_score": round(res["score"], 1),
             "source": titles_to_check[i]["source"]
         })
-    
+
     best = max(scores, key=lambda x: x["score"])
     
     return {

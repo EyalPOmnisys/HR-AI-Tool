@@ -101,49 +101,69 @@ def calculate_experience_match_detailed(
     exp_meta = candidate_extraction.get("experience_meta", {})
     rec_primary = exp_meta.get("recommended_primary_years", {})
     totals = exp_meta.get("totals_by_category", {})
-    
-    candidate_years = None
 
-    if is_tech_role:
-        # For tech roles: prefer specific tech experience
-        candidate_years = rec_primary.get("tech")
-        if candidate_years is None:
-            candidate_years = totals.get("tech")
-    else:
-        # For non-tech roles (HR, Marketing, etc.): use ONLY other experience
-        # This is critical: if looking for HR, we care about "other" (0.9), not "tech" (10.5)
-        candidate_years = rec_primary.get("other")
-        if candidate_years is None:
-            candidate_years = totals.get("other")
+    primary_bucket = "tech" if is_tech_role else "other"
+    secondary_buckets = ["other", "military"] if is_tech_role else ["tech"]
+
+    candidate_years = rec_primary.get(primary_bucket)
+    if candidate_years is None:
+        candidate_years = totals.get(primary_bucket)
+
+    # Cross-bucket fallback: extraction sometimes mis-buckets years, and the job's
+    # is_tech_role flag itself can be wrong. If the primary bucket is empty but
+    # another bucket holds real experience, credit it at a discount instead of
+    # zeroing the candidate (military often IS the relevant tech experience here).
+    fallback_bucket = None
+    if not candidate_years:
+        best_other = 0.0
+        for bucket in secondary_buckets:
+            bucket_years = rec_primary.get(bucket) or totals.get(bucket) or 0.0
+            if bucket_years and float(bucket_years) > best_other:
+                best_other = float(bucket_years)
+                fallback_bucket = bucket
+        if best_other > 0:
+            candidate_years = best_other * 0.7
 
     if candidate_years is None:
         # Last resort fallback
         candidate_years = candidate_extraction.get("years_of_experience", 0)
-    
+
     candidate_years = float(candidate_years) if candidate_years else 0.0
-    
-    # Calculate score
-    score = calculate_experience_match(candidate_years, job_min_years)
-    
-    # Determine verdict using dynamic thresholds
-    perfect_zone_buffer = job_min_years * 0.5
-    
-    if job_min_years == 0:
-        verdict = "no_requirement"
-    elif candidate_years < job_min_years * 0.5:
-        verdict = "significantly_under_qualified"
-    elif candidate_years < job_min_years:
-        verdict = "slightly_under_qualified"
-    elif candidate_years <= job_min_years + perfect_zone_buffer:
-        verdict = "perfect_match"
-    elif candidate_years <= job_min_years + perfect_zone_buffer + 2.0:
-        verdict = "moderately_over_qualified"
+
+    # Unknown is not zero: if years could not be computed (bad dates are common)
+    # but the resume HAS work history, score neutral instead of destroying the
+    # candidate - the LLM judge sees the full history and resolves the ambiguity.
+    experience_entries = candidate_extraction.get("experience") or []
+    years_unknown = candidate_years == 0.0 and len(experience_entries) > 0
+
+    if years_unknown:
+        score = 0.5
+        verdict = "years_unknown"
     else:
-        verdict = "significantly_over_qualified"
-    
-    return {
+        score = calculate_experience_match(candidate_years, job_min_years)
+
+        # Determine verdict using dynamic thresholds
+        perfect_zone_buffer = job_min_years * 0.5
+
+        if job_min_years == 0:
+            verdict = "no_requirement"
+        elif candidate_years < job_min_years * 0.5:
+            verdict = "significantly_under_qualified"
+        elif candidate_years < job_min_years:
+            verdict = "slightly_under_qualified"
+        elif candidate_years <= job_min_years + perfect_zone_buffer:
+            verdict = "perfect_match"
+        elif candidate_years <= job_min_years + perfect_zone_buffer + 2.0:
+            verdict = "moderately_over_qualified"
+        else:
+            verdict = "significantly_over_qualified"
+
+    result = {
         "score": round(score, 3),
         "candidate_years": round(candidate_years, 1),
         "required_years": round(job_min_years, 1),
         "verdict": verdict
     }
+    if fallback_bucket:
+        result["years_source"] = f"{fallback_bucket} (discounted 0.7)"
+    return result

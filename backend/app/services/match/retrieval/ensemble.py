@@ -292,11 +292,15 @@ async def search_and_score_candidates(
                 # NOW ASYNC!
                 # CHANGED: We pass experience_list=experiences so the matcher can check HISTORY for management roles
                 # BUT we rely on candidate_profession for the main semantic match.
+                # top_n=6: check the whole recent history, not just the current title.
+                # With top_n=1 a career-changer (e.g. cyber engineer now working as
+                # full-stack) never got credit for their relevant past roles.
+                # Older roles get a mild recency discount inside the matcher.
                 title_match_result = await title_matcher.calculate_title_match_with_history_async(
                     job_title=job.title,
-                    experience_list=experiences, # <--- CHANGED: Pass full history again!
+                    experience_list=experiences,
                     candidate_profession=primary_profession,
-                    top_n=1,
+                    top_n=6,
                     job_embedding_vector=job_title_embedding # <--- PASS PRE-CALCULATED EMBEDDING
                 )
                 
