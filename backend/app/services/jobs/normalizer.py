@@ -156,25 +156,34 @@ def _ensure_tech_keys(tech: Dict[str, Any]) -> None:
         tech.setdefault(k, [])
 
 
+def _boundary_match(term: str, text_blob: str) -> bool:
+    """Match a term in text with alphanumeric boundaries on both sides.
+
+    Plain substring matching caused false positives like '.net' -> ' net'
+    matching inside 'and NETwork protocols'. Lookarounds handle terms that
+    start/end with punctuation (e.g. '.net', 'c#') where \\b misbehaves.
+    """
+    term = term.strip()
+    if not term:
+        return False
+    pattern = rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"
+    return bool(re.search(pattern, text_blob, re.IGNORECASE))
+
+
 def _present_in_text(term: str, text_blob: str) -> bool:
     """
-    Check if a (canonicalized) term is explicitly present in text (substring match).
+    Check if a (canonicalized) term is explicitly present in text.
     This prevents adding hallucinated skills (e.g., 'scala' when not mentioned).
-    Also checks for common variations and separators.
+    Also checks for common variations and separators - every variation is
+    matched with word boundaries, never as a bare substring.
     """
     t = _canon(term)
     if not t:
         return False
 
-    # Prefer word-boundary match for single-token alnum terms to avoid substrings (e.g., 'ips' in 'partnerships')
-    if re.fullmatch(r"[a-z0-9]+", t):
-        if re.search(rf"\b{re.escape(t)}\b", text_blob, re.IGNORECASE):
-            return True
-    else:
-        # Direct substring match for multi-token or punctuated terms
-        if t in text_blob:
-            return True
-    
+    if _boundary_match(t, text_blob):
+        return True
+
     # Check for variations with separators (e.g., "Next.js" vs "nextjs" vs "next js")
     variations = [
         t.replace(".", ""),
@@ -182,16 +191,18 @@ def _present_in_text(term: str, text_blob: str) -> bool:
         t.replace("-", ""),
         t.replace("-", " "),
     ]
-    
+
     for var in variations:
-        if var == t:
+        var = var.strip()
+        if not var or var == t:
             continue
-        if re.fullmatch(r"[a-z0-9]+", var):
-            if re.search(rf"\b{re.escape(var)}\b", text_blob, re.IGNORECASE):
-                return True
-        elif var in text_blob:
+        # Guard against degenerate variations ('.net' -> 'net') that are too
+        # generic to prove the original term was mentioned.
+        if len(var) < 3:
+            continue
+        if _boundary_match(var, text_blob):
             return True
-    
+
     return False
 
 
@@ -259,7 +270,7 @@ def _dedupe_list(items: List[str]) -> List[str]:
     return out
 
 
-def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_job_analysis(data: Dict[str, Any], source_text: str | None = None) -> Dict[str, Any]:
     """
     Strict post-processing for the model output.
 
@@ -268,6 +279,12 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     - Skills/tech are kept only if they appear verbatim in the source text areas.
     - Responsibilities and requirements are deduplicated but not expanded.
     - Keywords are derived from concrete tech/stack words present in text to avoid noise.
+
+    Args:
+        source_text: The ORIGINAL job posting text (title + description + notes).
+            When provided, skill/tech verification runs against it. Without it we
+            fall back to the model's own summary/requirements - which cannot catch
+            a hallucination the model repeated consistently across fields.
     """
     logger.info("Normalizing job analysis JSON (strict mode)")
 
@@ -302,15 +319,34 @@ def normalize_job_analysis(data: Dict[str, Any]) -> Dict[str, Any]:
     must = [s for s in must_raw if is_concrete_skill(s)]
     nice = [s for s in nice_raw if is_concrete_skill(s)]
     
-    # Build a lowercase text blob solely from fields that reflect the original text
-    # (summary + responsibilities + requirements). We avoid adding any invented content here.
-    text_blob_src = " ".join([
-        data.get("summary") or "",
-        " ".join(data.get("responsibilities") or []),
-        " ".join(data.get("requirements") or []),
-    ])
-    text_blob = text_blob_src.lower()
+    # Build the lowercase reference blob used to verify extracted terms.
+    # Prefer the TRUE source text; fall back to model-derived fields for legacy callers.
+    if source_text:
+        text_blob = source_text.lower()
+    else:
+        text_blob_src = " ".join([
+            data.get("summary") or "",
+            " ".join(data.get("responsibilities") or []),
+            " ".join(data.get("requirements") or []),
+        ])
+        text_blob = text_blob_src.lower()
     
+    # ---- Anti-hallucination: drop KNOWN tech terms that are absent from the text ----
+    # Surgical on purpose: only terms recognized in our tech vocabulary are dropped
+    # when missing from the source, so legitimate paraphrases ("PRD Writing") survive.
+    # A hallucinated tech in must_have is the dangerous case - it inflates the skills
+    # denominator and penalizes every candidate for a requirement that does not exist.
+    def _is_hallucinated_tech(skill: str) -> bool:
+        key = _canon(skill)
+        in_vocab = any(key in vocab for vocab in _BUCKETS.values())
+        return in_vocab and not _present_in_text(skill, text_blob)
+
+    dropped_hallucinations = [s for s in must + nice if _is_hallucinated_tech(s)]
+    if dropped_hallucinations:
+        logger.warning("Dropping hallucinated tech terms not present in job text: %s", dropped_hallucinations)
+        must = [s for s in must if not _is_hallucinated_tech(s)]
+        nice = [s for s in nice if not _is_hallucinated_tech(s)]
+
     # Extract concrete tech terms from nice_to_have descriptions
     # E.g., "Proficiency with Jira, TestRail" → extract "Jira", "TestRail"
     # E.g., "automation testing (e.g., Selenium, Cypress)" → extract "Selenium", "Cypress"

@@ -2,12 +2,16 @@
 """Job Analysis Service: uses LLM to extract structured data (skills, tech stack, requirements)
 from raw job postings, validates against schema, and returns normalized JSON."""
 from __future__ import annotations
+import logging
 from typing import Tuple
 
 from app.core.config import settings
 from app.schemas.job_analysis import JobAnalysis
 from app.services.jobs.normalizer import normalize_job_analysis
 from app.services.common.llm_client import load_prompt, default_llm_client
+
+logger = logging.getLogger("jobs.analyzer")
+
 JOB_ANALYSIS_PROMPT = load_prompt("jobs/job_analysis.prompt.txt")
 
 
@@ -79,24 +83,57 @@ def analyze_job_text(*, title: str, description: str, free_text: str | None) -> 
     """
     Run the LLM with the job analysis prompt and return validated/normalized JSON.
     """
-    # Build user prompt with job data
-    user_prompt = (
-        f"{JOB_ANALYSIS_PROMPT}\n\n"
+    # The true source text: used both as the prompt input and as the reference
+    # the normalizer verifies extracted skills against (anti-hallucination).
+    source_text = (
         f"Job title:\n{title}\n\n"
         f"Description:\n{description}\n\n"
-        f"Additional notes:\n{free_text or ''}\n\n"
-        "Return JSON only."
+        f"Additional notes:\n{free_text or ''}"
     )
 
-    # Use LLM client (Ollama or OpenAI based on config)
-    messages = [{"role": "user", "content": user_prompt}]
-    resp = default_llm_client.chat_json(messages, timeout=120)
-    raw = resp.data
+    # Fill the {{text}} placeholder the prompt file ends with; fall back to
+    # appending if the placeholder is ever removed from the prompt.
+    if "{{text}}" in JOB_ANALYSIS_PROMPT:
+        user_prompt = JOB_ANALYSIS_PROMPT.replace("{{text}}", source_text) + "\n\nReturn JSON only."
+    else:
+        user_prompt = f"{JOB_ANALYSIS_PROMPT}\n\n{source_text}\n\nReturn JSON only."
 
-    # Validate against our pydantic schema, then normalize with our strict post-processor
-    data = JobAnalysis.model_validate(raw).model_dump()
+    # Use LLM client (Ollama or OpenAI based on config).
+    # The model occasionally returns a near-empty JSON (valid schema, no content);
+    # Pydantic happily fills defaults and the junk gets stored. Retry with a
+    # sanity check instead of accepting the first syntactically-valid response.
+    messages = [{"role": "user", "content": user_prompt}]
+    max_attempts = 3
+    data = None
+    for attempt in range(1, max_attempts + 1):
+        resp = default_llm_client.chat_json(messages, timeout=120)
+        raw = resp.data
+        if raw.get("__llm_error__"):
+            logger.warning("Job analysis attempt %d/%d: LLM error payload: %s", attempt, max_attempts, raw.get("__llm_error__"))
+            continue
+
+        candidate = JobAnalysis.model_validate(raw).model_dump()
+        skills = candidate.get("skills") or {}
+        has_content = bool(
+            candidate.get("role_title")
+            or skills.get("must_have")
+            or skills.get("nice_to_have")
+            or candidate.get("responsibilities")
+            or candidate.get("requirements")
+        )
+        if has_content:
+            data = candidate
+            break
+        logger.warning("Job analysis attempt %d/%d returned an empty analysis; retrying", attempt, max_attempts)
+
+    if data is None:
+        raise ValueError(f"Job analysis produced no usable content after {max_attempts} attempts")
+
+    # Validate against our pydantic schema, then normalize with our strict post-processor.
+    # Passing source_text makes the normalizer verify skills against the REAL job text
+    # instead of the model's own (possibly hallucinated) summary/requirements.
     data = _sanitize_result(data)
-    data = normalize_job_analysis(data)
+    data = normalize_job_analysis(data, source_text=source_text)
     data["version"] = settings.ANALYSIS_VERSION
 
     # Return the model name from the client
