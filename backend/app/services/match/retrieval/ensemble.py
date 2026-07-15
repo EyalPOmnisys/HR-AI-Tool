@@ -142,14 +142,21 @@ async def search_and_score_candidates(
     logger.info(f"Stage 2: Detailed scoring for ALL {len(resumes)} candidates...")
     logger.info("")
     
-    # Extract job requirements
+    # Extract job requirements. Copy the lists - we mutate required_skills below
+    # and must not corrupt the stored analysis_json.
     job_analysis = job.analysis_json or {}
     job_skills_data = job_analysis.get("skills", {})
-    required_skills = job_skills_data.get("must_have", [])
-    nice_to_have_skills = job_skills_data.get("nice_to_have", [])
-    additional_skills = job_skills_data.get("additional_skills", [])
+    required_skills = list(job_skills_data.get("must_have", []) or [])
+    nice_to_have_skills = list(job_skills_data.get("nice_to_have", []) or [])
+    additional_skills = list(job_skills_data.get("additional_skills", []) or [])
 
-    # Include Tech Stack in required skills
+    # Anything explicitly marked nice_to_have must NEVER count as a hard requirement,
+    # even if it also leaked into tech_stack (the normalizer buckets nice-to-have
+    # terms into tech_stack.tools by default). Without this, optional certs like
+    # "Security+" get treated as must-haves and drag every candidate's skills score.
+    nice_lower = {n.strip().lower() for n in nice_to_have_skills}
+
+    # Include Tech Stack in required skills (excluding nice-to-have leakage)
     tech_stack = job_analysis.get("tech_stack", {})
     if tech_stack:
         for category in ["languages", "frameworks", "databases", "cloud", "tools", "business"]:
@@ -160,7 +167,7 @@ async def search_and_score_candidates(
     # Keep only concrete technologies for the exact-match scorer; soft requirement
     # phrases ("security operations", "log analysis") are left to the LLM judge.
     all_requirements = list(dict.fromkeys(required_skills))
-    required_skills = extract_hard_skills(all_requirements)
+    required_skills = [r for r in extract_hard_skills(all_requirements) if r.strip().lower() not in nice_lower]
     dropped = [r for r in all_requirements if not extract_hard_skills([r])]
     if dropped:
         logger.info(f"Soft requirements excluded from skills matching (left to LLM judge): {dropped}")
