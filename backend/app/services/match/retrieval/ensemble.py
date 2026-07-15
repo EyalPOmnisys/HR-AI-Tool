@@ -40,6 +40,46 @@ def get_title_embedder():
     return TITLE_EMBEDDER
 
 
+# Words that mark a job-analysis "skill" as a soft requirement phrase rather than
+# a concrete technology (e.g. "security operations", "log analysis"). Resumes never
+# list these as skills, so feeding them to the exact-match skills scorer only
+# inflates the denominator and drags every candidate to 0. The LLM judge evaluates
+# these phrases instead (it sees the full job description).
+SOFT_REQUIREMENT_WORDS = {
+    "operations", "response", "analysis", "protocols", "management",
+    "methodologies", "practices", "principles", "communication", "teamwork",
+    "collaboration", "troubleshooting", "monitoring", "documentation",
+}
+
+# Generic trailing words that wrap a real technology ("Python scripting",
+# "React development") - strip them and keep the technology itself.
+GENERIC_SKILL_WORDS = {
+    "scripting", "programming", "development", "developer", "experience",
+    "knowledge", "skills", "proficiency", "familiarity", "fundamentals",
+}
+
+
+def extract_hard_skills(items: list[str]) -> list[str]:
+    """Keep only concrete, matchable technologies from a job-analysis skill list.
+
+    - "Python scripting" -> "Python" (generic wrapper stripped)
+    - "security operations" -> dropped (soft requirement phrase)
+    - "Burp Suite" / "TCP/IP" -> kept as-is
+    """
+    hard: list[str] = []
+    for item in items:
+        if not item or not isinstance(item, str):
+            continue
+        words = item.strip().split()
+        core = [w for w in words if w.lower() not in GENERIC_SKILL_WORDS]
+        if not core:
+            continue
+        if any(w.lower() in SOFT_REQUIREMENT_WORDS for w in core):
+            continue
+        hard.append(" ".join(core))
+    return list(dict.fromkeys(hard))
+
+
 async def search_and_score_candidates(
     session: AsyncSession,
     job: Job,
@@ -116,9 +156,15 @@ async def search_and_score_candidates(
             items = tech_stack.get(category, [])
             if items:
                 required_skills.extend(items)
-        
-        # Remove duplicates while preserving order
-        required_skills = list(dict.fromkeys(required_skills))
+
+    # Keep only concrete technologies for the exact-match scorer; soft requirement
+    # phrases ("security operations", "log analysis") are left to the LLM judge.
+    all_requirements = list(dict.fromkeys(required_skills))
+    required_skills = extract_hard_skills(all_requirements)
+    dropped = [r for r in all_requirements if not extract_hard_skills([r])]
+    if dropped:
+        logger.info(f"Soft requirements excluded from skills matching (left to LLM judge): {dropped}")
+    nice_to_have_skills = extract_hard_skills(nice_to_have_skills)
     
     # Log job requirements once at the start
     logger.info("┌═════════════════════════════════════════════════════════════════┐")
@@ -296,19 +342,18 @@ async def search_and_score_candidates(
                 0.20 * (skills_result.weighted_score / 100)
             )
             
-            # === RED FLAG: Poor Title Match ===
-            # If title match is below 70%, apply a MASSIVE penalty.
-            # This ensures "QA Automation" doesn't get matched for "QA Lead"
-            RED_FLAG_TITLE_THRESHOLD = 0.75 # Was 0.70
-            RED_FLAG_PENALTY = 0.10  # Was 0.30 (Now keeps only 10% of score instead of 30%)
-            
-            if title_score < RED_FLAG_TITLE_THRESHOLD:
-                penalty_amount = final_score * (1.0 - RED_FLAG_PENALTY) # Calculate amount lost
-                final_score = final_score * RED_FLAG_PENALTY
-                logger.info("├─────────────────────────────────────────────────────────────────┤")
-                logger.info(f"│ 🚩 RED FLAG: Poor title match (<{RED_FLAG_TITLE_THRESHOLD*100:.0f}%) - applying {(1-RED_FLAG_PENALTY)*100:.0f}% penalty   │")
-                logger.info(f"│    Penalty: -{penalty_amount * 100:.1f}% → New score: {final_score * 100:.1f}%            │")
-                logger.info("└─────────────────────────────────────────────────────────────────┘")
+            # === Low Title Confidence: continuous penalty ===
+            # The old hard "red flag" (x0.10 below 0.75) crushed nearly every candidate
+            # to 1-4/100, because semantic cosine between non-identical titles rarely
+            # exceeds 0.75 with the current embedding model - Stage 1 ranking became
+            # noise and strong candidates never surfaced. A gentle linear factor keeps
+            # the intent (weak title = less confidence) without destroying the ranking.
+            TITLE_CONFIDENCE_FLOOR = 0.75
+            if title_score < TITLE_CONFIDENCE_FLOOR:
+                penalty_factor = 0.6 + 0.4 * (title_score / TITLE_CONFIDENCE_FLOOR)
+                penalty_amount = final_score * (1.0 - penalty_factor)
+                final_score = final_score * penalty_factor
+                logger.info(f"│ Low title confidence ({title_score*100:.0f}%) → factor {penalty_factor:.2f}, -{penalty_amount*100:.1f} pts │")
             
             logger.info(f"│ ⚡ FINAL SCORE: {final_score * 100:>6.1f}% │ (55%×Title + 25%×Exp + 20%×Skills) │")
             logger.info("")

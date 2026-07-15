@@ -55,44 +55,14 @@ def calculate_experience_match(
 
     # Over-qualified (or exact match)
     else:
-        diff = resume_years - job_min_years
-        
-        # For open-ended roles ("3+ years"), expand the perfect zone
-        # The buffer is 50% of the minimum requirement
-        # Examples:
-        # - "3+ years": perfect until 4.5 years (3 + 1.5)
-        # - "5+ years": perfect until 7.5 years (5 + 2.5)
-        # - "7+ years": perfect until 10.5 years (7 + 3.5)
-        perfect_zone_buffer = job_min_years * 0.5
-        
-        if diff <= perfect_zone_buffer:
-            return 1.0
-            
-        # Beyond the perfect zone -> Decay starts
-        # NEW: Non-linear decay based on seniority level
-        # For senior roles (7+), experience gaps are less critical
-        else:
-            # Dynamic decay with seniority adjustment:
-            # Junior roles (<5 years): Strict decay - over-qualification is more problematic
-            # Mid roles (5-6 years): Moderate decay
-            # Senior roles (7+ years): Gentle decay - "7→9 or 10→12 is not critical"
-            
-            if job_min_years < 5:
-                # Junior/Mid: More sensitive to over-qualification
-                # Example: R=4, C=7 → diff=3, buffer=2 → score = 1.0 - 1*0.18 = 0.82
-                decay_factor = 0.18
-            elif job_min_years < 7:
-                # Mid-Senior transition: Moderate decay
-                # Example: R=5, C=8 → diff=3, buffer=2.5 → score = 1.0 - 0.5*0.12 = 0.94
-                decay_factor = 0.12
-            else:
-                # Senior (7+): Very gentle decay
-                # Example: R=7, C=10 → diff=3, buffer=3.5 → score = 1.0 (within buffer) ✓
-                # Example: R=10, C=15 → diff=5, buffer=5 → score = 1.0 (within buffer) ✓
-                decay_factor = 0.06
-            
-            score = 1.0 - (diff - perfect_zone_buffer) * decay_factor
-            return max(0.0, score)
+        # Experience beyond the requirement is an asset, not a defect - this mirrors
+        # the LLM judge rubric ("treat extra experience as a BONUS"). The previous
+        # aggressive decay gave a 8.5y candidate a 0.01 score on a "2+ years" job,
+        # inverting the ranking against the judge for every senior candidate.
+        # Penalize only extreme gaps on junior roles (flight-risk concern).
+        if job_min_years < 5 and resume_years > job_min_years * 3:
+            return 0.75
+        return 1.0
 
 
 def calculate_experience_match_detailed(
