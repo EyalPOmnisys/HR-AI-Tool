@@ -894,7 +894,10 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
             logger.warning(f"Extraction attempt {attempt + 1} failed: {_why}")
 
     if extraction is None:
-        # Hard fallback: preserve base_json and return minimal safe shape
+        # Hard fallback: preserve base_json and return minimal safe shape.
+        # Flag it explicitly - callers must surface this as a warning, not
+        # silently store a deterministic-only extraction as if it were complete.
+        logger.error("LLM extraction failed after %d attempts; falling back to deterministic-only output", RETRIES + 1)
         safe_out = dict(base_json)
         safe_out.setdefault("person", {}).setdefault("name", None)
         safe_out["education"] = None
@@ -906,6 +909,7 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
         }
         safe_out["years_by_category"] = {}
         safe_out["primary_years"] = None
+        safe_out.setdefault("meta", {})["llm_enhancement"] = "failed"
         return safe_out
 
     extraction["_base_json_"] = base_json

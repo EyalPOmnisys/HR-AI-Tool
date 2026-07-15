@@ -144,11 +144,22 @@ def parse_and_extract(db: Session, resume: Resume) -> Resume:
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Resume {resume.id} quality warnings: {validation.warnings}")
             
+            # LLM enhancement failure means the extraction is deterministic-only
+            # (no name/experience/education) - never let it pass as a healthy resume.
+            llm_failed = resume.extraction_json.get("meta", {}).get("llm_enhancement") == "failed"
+
             # If critical errors, mark status
-            if not validation.is_valid:
+            if llm_failed:
                 resume_repo.set_status(
-                    db, 
-                    resume, 
+                    db,
+                    resume,
+                    status="warning",
+                    error="LLM extraction failed - deterministic-only data (no name/experience). Re-ingest to retry."
+                )
+            elif not validation.is_valid:
+                resume_repo.set_status(
+                    db,
+                    resume,
                     status="warning",
                     error=f"Quality issues: {', '.join(validation.errors[:3])}"
                 )

@@ -151,6 +151,22 @@ def main():
     db = SessionLocal()
     known_filenames = set()
     try:
+        # SECOND CHANCE: files that previously errored get one retry per watcher
+        # restart. A restart usually means code/model changed - the bug that
+        # blacklisted them may be fixed. Delete the error rows so the scan below
+        # re-ingests those files cleanly (the content-hash skip would otherwise
+        # block them forever). No infinite loop: within a run it is still one strike.
+        error_rows = db.query(Resume).filter(Resume.status == 'error').all()
+        retried = 0
+        for row in error_rows:
+            if row.file_path and Path(row.file_path).exists():
+                print(f"[Watcher] 🔁 Second chance: clearing error record for {Path(row.file_path).name}")
+                db.delete(row)
+                retried += 1
+        if retried:
+            db.commit()
+            print(f"[Watcher] 🔁 {retried} previously-failed files queued for retry.")
+
         # Fetch only file paths
         results = db.query(Resume.file_path).all()
         for r in results:
