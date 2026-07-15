@@ -14,21 +14,21 @@ export const AboutModal = ({ isOpen, onClose }: AboutModalProps): ReactElement |
 
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.modal} onClick={(e) => e.stopPropagation()} dir="rtl">
         <div className={styles.header}>
           <div className={styles.logo} aria-hidden>
             <img src={logo} alt="OmniAI HR logo" />
           </div>
           <div className={styles.headerText}>
             <h3 className={styles.title}>OmniAI HR</h3>
-            <span className={styles.subtitle}>AI-Powered Hiring Platform</span>
+            <span className={styles.subtitle}>מערכת גיוס חכמה מבוססת AI</span>
           </div>
           <span className={styles.versionBadge}>v{APP_VERSION}</span>
         </div>
 
         <div className={styles.divider} />
 
-        <h4 className={styles.sectionTitle}>What&apos;s New</h4>
+        <h4 className={styles.sectionTitle}>מה חדש</h4>
         <div className={styles.changelog}>
           {CHANGELOG.map((entry) => (
             <div key={entry.version} className={styles.entry}>
@@ -38,7 +38,7 @@ export const AboutModal = ({ isOpen, onClose }: AboutModalProps): ReactElement |
               </div>
               <ul className={styles.highlights}>
                 {entry.highlights.map((line, i) => (
-                  <li key={i}>{line}</li>
+                  <li key={i}><bdi>{line}</bdi></li>
                 ))}
               </ul>
             </div>
@@ -47,7 +47,7 @@ export const AboutModal = ({ isOpen, onClose }: AboutModalProps): ReactElement |
 
         <div className={styles.actions}>
           <button className={styles.closeButton} onClick={onClose}>
-            Close
+            סגור
           </button>
         </div>
       </div>
