@@ -22,6 +22,7 @@ class CandidateRow(BaseModel):
     phone: Optional[str] = None
     resume_url: Optional[str] = None
     file_name: Optional[str] = None  # Added for file type detection
+    submitted_at: Optional[str] = None              # When the resume was ingested (ISO date)
     
     # Scoring breakdown for transparency
     rag_score: int                                  # Pure vector similarity score (0-100)
@@ -39,6 +40,15 @@ class CandidateRow(BaseModel):
     notes: Optional[str] = None                     # Free text notes from user
 
 
+class MatchInsight(BaseModel):
+    """A data-driven recommendation about the search, computed after matching."""
+    type: str                                       # bottleneck | weak_pool | strong_pool
+    severity: str = "info"                          # info | suggestion | warning
+    message: str                                    # Hebrew, recruiter-facing
+    related_skill: Optional[str] = None             # the requirement it refers to, if any
+    affected_count: Optional[int] = None            # how many candidates it concerns
+
+
 class MatchRunResponse(BaseModel):
     """Response from match run."""
     job_id: UUID
@@ -48,3 +58,4 @@ class MatchRunResponse(BaseModel):
     new_count: int
     previously_reviewed_count: int
     all_candidates_already_reviewed: bool
+    insights: List[MatchInsight] = Field(default_factory=list)

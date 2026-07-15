@@ -676,6 +676,35 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
 
       {/* Candidates Table */}
       <div className={styles.tableSection}>
+        {/* Data-driven search insights */}
+        {(matchResults.insights?.length ?? 0) > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px' }} dir="rtl">
+            {matchResults.insights!.map((insight, idx) => {
+              const palette: Record<string, { bg: string; border: string; icon: string }> = {
+                suggestion: { bg: '#eff6ff', border: '#bfdbfe', icon: '💡' },
+                warning: { bg: '#fef2f2', border: '#fecaca', icon: '⚠️' },
+                info: { bg: '#f0fdf4', border: '#bbf7d0', icon: '✅' },
+              }
+              const p = palette[insight.severity] ?? palette.info
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '10px',
+                    background: p.bg, border: `1px solid ${p.border}`,
+                    borderRadius: '10px', padding: '12px 14px',
+                    fontSize: '0.9rem', color: '#1e293b', lineHeight: 1.5,
+                    textAlign: 'start',
+                  }}
+                >
+                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }} aria-hidden>{p.icon}</span>
+                  <span><bdi>{insight.message}</bdi></span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {candidates.length > 0 && showFilter && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '20px', marginBottom: '8px', flexWrap: 'wrap' }}>
             {/* Bulk Actions Component */}
@@ -764,6 +793,7 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                 <th>👤 Candidate</th>
                 <th>💼 Title</th>
                 <th>{experienceLabel}</th>
+                <th>📅 Submitted</th>
                 <th>🏢 Stability</th>
                 <th>📊 Status</th>
                 <th>📞 Phone</th>
@@ -805,6 +835,11 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                     </td>
                     <td>{candidate.title || '—'}</td>
                     <td>{candidate.experience || '0 yrs'}</td>
+                    <td style={{ whiteSpace: 'nowrap', color: '#475569', fontSize: '13px' }}>
+                      {candidate.submitted_at
+                        ? new Date(candidate.submitted_at).toLocaleDateString('he-IL')
+                        : '—'}
+                    </td>
                     <td>
                       {candidate.stability_score !== undefined ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -963,7 +998,7 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                   </tr>
                   {expandedResumeId === candidate.resume_id && candidate.resume_url && (
                     <tr key={`${candidate.resume_id}-resume`} className={styles.resumeRow}>
-                      <td colSpan={showFilter ? 13 : 12} className={styles.resumeCell}>
+                      <td colSpan={showFilter ? 14 : 13} className={styles.resumeCell}>
                         <div className={styles.resumeContainer}>
                           <ResumePreview 
                             url={`${API_URL}${candidate.resume_url}`} 

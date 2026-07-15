@@ -24,6 +24,7 @@ export type CandidateRow = {
   phone: string | null;
   resume_url: string | null;
   file_name?: string | null;
+  submitted_at?: string | null;
   rag_breakdown?: RAGBreakdown;
   rag_score?: number;
   llm_score?: number;
@@ -36,6 +37,14 @@ export type CandidateRow = {
   notes?: string; // Free text notes
 };
 
+export type MatchInsight = {
+  type: 'bottleneck' | 'weak_pool' | 'strong_pool' | string;
+  severity: 'info' | 'suggestion' | 'warning' | string;
+  message: string;
+  related_skill?: string | null;
+  affected_count?: number | null;
+};
+
 export type MatchRunResponse = {
   job_id: string;
   requested_top_n: number;
@@ -44,4 +53,5 @@ export type MatchRunResponse = {
   new_count: number;
   previously_reviewed_count: number;
   all_candidates_already_reviewed: boolean;
+  insights?: MatchInsight[];
 };

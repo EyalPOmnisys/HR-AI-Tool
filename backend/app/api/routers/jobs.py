@@ -148,7 +148,8 @@ def get_job_candidates(job_id: UUID, db: Session = Depends(get_db)):
             phone=phone,
             resume_url=resume_url,
             file_name=file_name,
-            
+            submitted_at=resume.created_at.isoformat() if resume.created_at else None,
+
             rag_score=jc.rag_score or 0,
             llm_score=jc.llm_score,
             llm_verdict=analysis.get("llm_verdict"),

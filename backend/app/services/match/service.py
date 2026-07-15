@@ -226,6 +226,7 @@ class MatchService:
                 "rag_score": jc.rag_score or 0,
                 "final_score": jc.match_score or jc.rag_score or 0,
                 "llm_score": jc.llm_score,
+                "submitted_at": resume.created_at.isoformat() if resume.created_at else None,
                 "breakdown": analysis.get("rag_breakdown", {}),
                 "stability_detail": analysis.get("stability", {}),
                 "llm_analysis": {
@@ -403,6 +404,7 @@ class MatchService:
                 "phone": contact.get("phone"),
                 "resume_url": contact.get("resume_url"),
                 "file_name": contact.get("file_name"),
+                "submitted_at": candidate.get("submitted_at"),
                 "rag_score": candidate.get("rag_score", 0),
                 "llm_score": candidate.get("llm_score"),
                 "rag_breakdown": candidate.get("breakdown", {}),
@@ -413,11 +415,14 @@ class MatchService:
                 "status": candidate.get("status", "new"),
             })
         
+        # Data-driven insights from the scored pool (bottleneck requirements etc.)
+        insights = _compute_insights(candidates_pool, all_candidates_data)
+
         logger.info("")
         logger.info("=" * 80)
         logger.info("MATCH COMPLETE")
         logger.info("=" * 80)
-        
+
         return {
             "job_id": job_id,
             "requested_top_n": top_n,
@@ -425,7 +430,8 @@ class MatchService:
             "new_candidates": response_candidates,
             "new_count": len(candidates_pool),
             "previously_reviewed_count": 0, # We re-scored everyone
-            "all_candidates_already_reviewed": False
+            "all_candidates_already_reviewed": False,
+            "insights": insights,
         }
 
 
@@ -438,3 +444,77 @@ def _format_experience(years: float | None) -> str:
     if years % 1 == 0:
         return f"{int(years)} yrs"
     return f"{years:.1f} yrs"
+
+
+def _compute_insights(candidates_pool: list[dict], all_candidates_data: list[dict]) -> list[dict]:
+    """Derive recruiter-facing insights from the scored candidate pool.
+
+    Grounded in real data, not LLM guesses:
+    - bottleneck: the single required skill missing from the most role-relevant
+      candidates - the requirement most worth reconsidering.
+    - weak_pool / strong_pool: overall signal from the judge scores.
+
+    Messages are in Hebrew (recruiter-facing). Returns [] when the pool is too
+    small to reason about (e.g. a delta run scoring one new candidate).
+    """
+    from collections import Counter
+
+    insights: list[dict] = []
+    pool = candidates_pool or []
+    if len(pool) < 5:
+        return insights
+
+    # --- Bottleneck requirement (near-miss analysis) ---
+    # Only consider role-relevant candidates (decent title match). If too few are
+    # role-relevant, a "bottleneck skill" is meaningless (the pool just doesn't fit
+    # the role) - we skip it and let the weak_pool signal speak instead.
+    role_relevant = [c for c in pool if (c.get("breakdown", {}) or {}).get("title", 0) >= 50]
+
+    if len(role_relevant) >= 3:
+        missing_counter: Counter = Counter()
+        for c in role_relevant:
+            for skill in (c.get("skills_detail", {}) or {}).get("missing_required", []) or []:
+                missing_counter[skill] += 1
+
+        if missing_counter:
+            skill, count = missing_counter.most_common(1)[0]
+            share = count / len(role_relevant)
+        else:
+            skill, count, share = None, 0, 0.0
+
+        # Only surface a requirement that genuinely gates most role-relevant candidates.
+        if skill and count >= 3 and share >= 0.5:
+            insights.append({
+                "type": "bottleneck",
+                "severity": "suggestion",
+                "message": (
+                    f"{count} מועמדים רלוונטיים לתפקיד חסרים רק את '{skill}'. "
+                    f"שקול/י להעביר את '{skill}' ל'יתרון' במקום דרישת חובה כדי להרחיב את מאגר המועמדים."
+                ),
+                "related_skill": skill,
+                "affected_count": count,
+            })
+
+    # --- Overall pool strength (uses judge scores when available) ---
+    scored = [c for c in (all_candidates_data or []) if c.get("llm_score") is not None]
+    if scored:
+        best = max((c.get("llm_score") or 0) for c in scored)
+        strong = sum(1 for c in scored if (c.get("llm_score") or 0) >= 70)
+        if best < 55:
+            insights.append({
+                "type": "weak_pool",
+                "severity": "warning",
+                "message": (
+                    "לא נמצאו התאמות חזקות במאגר הנוכחי. שקול/י לרכך דרישות חובה, "
+                    "להרחיב את טווח הוותק, או להוסיף מועמדים חדשים."
+                ),
+            })
+        elif strong >= 1:
+            insights.append({
+                "type": "strong_pool",
+                "severity": "info",
+                "message": f"נמצאו {strong} מועמדים חזקים (ציון 70+) למשרה זו.",
+                "affected_count": strong,
+            })
+
+    return insights
