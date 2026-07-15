@@ -1,4 +1,5 @@
 // src/components/ai-search/Form/Form.tsx
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import styles from './Form.module.css';
 import type { ApiJob, JobAnalysis, LanguageLevel } from '../../../types/job';
@@ -10,6 +11,7 @@ type Props = {
   selectedJob?: ApiJob;
   error?: string | null;
   onJobChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+  onJobSelect?: (jobId: string) => void;
   onCandidateChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
 };
@@ -40,10 +42,56 @@ export default function Form({
   selectedJob,
   error,
   onJobChange,
+  onJobSelect,
   onCandidateChange,
   onSubmit,
 }: Props) {
   const analysis: JobAnalysis | undefined = selectedJob?.analysis_json ?? undefined;
+
+  // Searchable job picker (type to filter the existing job list)
+  const [jobQuery, setJobQuery] = useState('');
+  const [jobPickerOpen, setJobPickerOpen] = useState(false);
+  const jobPickerRef = useRef<HTMLDivElement>(null);
+
+  const filteredJobs = useMemo(() => {
+    const q = jobQuery.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((job) => {
+      const a = job.analysis_json;
+      const haystack = [
+        job.title,
+        a?.organization,
+        a?.role_title,
+        ...(a?.locations ?? []),
+        ...(a?.skills?.must_have ?? []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [jobs, jobQuery]);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (jobPickerRef.current && !jobPickerRef.current.contains(e.target as Node)) {
+        setJobPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  const selectJob = (jobId: string) => {
+    if (onJobSelect) {
+      onJobSelect(jobId);
+    } else {
+      // Back-compat: synthesize a select change event
+      onJobChange({ target: { value: jobId } } as ChangeEvent<HTMLSelectElement>);
+    }
+    setJobPickerOpen(false);
+    setJobQuery('');
+  };
 
   const exp = analysis?.experience;
   const yearsDisplay =
@@ -65,25 +113,59 @@ export default function Form({
               <h3 className={styles.sectionTitle}>Candidate Search</h3>
 
               <div className={styles.field}>
-                <label htmlFor="jobSelect" className={styles.label}>
+                <label htmlFor="jobSearch" className={styles.label}>
                   Select a role
                 </label>
-                <select
-                  id="jobSelect"
-                  className={styles.control}
-                  value={selectedJobId}
-                  onChange={onJobChange}
-                >
-                  {jobs.length === 0 ? (
-                    <option>No jobs available</option>
-                  ) : (
-                    jobs.map((job) => (
-                      <option key={job.id} value={job.id}>
-                        {optionLabel(job)}
-                      </option>
-                    ))
+                <div ref={jobPickerRef} style={{ position: 'relative' }}>
+                  <input
+                    id="jobSearch"
+                    className={styles.control}
+                    type="text"
+                    autoComplete="off"
+                    placeholder={jobs.length === 0 ? 'No jobs available' : 'Search or select a role…'}
+                    value={jobPickerOpen ? jobQuery : (selectedJob ? optionLabel(selectedJob) : '')}
+                    disabled={jobs.length === 0}
+                    onFocus={() => { setJobPickerOpen(true); setJobQuery(''); }}
+                    onChange={(e) => { setJobQuery(e.target.value); setJobPickerOpen(true); }}
+                  />
+                  {jobPickerOpen && jobs.length > 0 && (
+                    <div
+                      role="listbox"
+                      style={{
+                        position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                        maxHeight: '260px', overflowY: 'auto', zIndex: 10001,
+                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px',
+                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)', padding: '4px',
+                      }}
+                    >
+                      {filteredJobs.length === 0 ? (
+                        <div style={{ padding: '10px 12px', color: '#94a3b8', fontSize: '0.9rem' }}>
+                          No matching roles
+                        </div>
+                      ) : (
+                        filteredJobs.map((job) => (
+                          <div
+                            key={job.id}
+                            role="option"
+                            aria-selected={job.id === selectedJobId}
+                            onMouseDown={(e) => { e.preventDefault(); selectJob(job.id); }}
+                            style={{
+                              padding: '9px 12px', borderRadius: '8px', cursor: 'pointer',
+                              fontSize: '0.9rem',
+                              background: job.id === selectedJobId ? 'rgba(59,130,246,0.12)' : 'transparent',
+                              color: job.id === selectedJobId ? '#1e40af' : '#334155',
+                              fontWeight: job.id === selectedJobId ? 600 : 400,
+                            }}
+                            onMouseEnter={(e) => { if (job.id !== selectedJobId) e.currentTarget.style.background = 'rgba(59,130,246,0.06)'; }}
+                            onMouseLeave={(e) => { if (job.id !== selectedJobId) e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            {optionLabel(job)}
+                          </div>
+                        ))
+                      )}
+                    </div>
                   )}
-                </select>
+                </div>
               </div>
 
               <div className={styles.field}>

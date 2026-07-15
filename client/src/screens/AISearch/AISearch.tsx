@@ -201,6 +201,7 @@ export default function AISearch(): ReactElement {
             selectedJob={selectedJob}
             error={matchError}
             onJobChange={handleJobChange}
+            onJobSelect={setSelectedJobId}
             onCandidateChange={handleCandidateChange}
             onSubmit={handleGenerate}
           />
