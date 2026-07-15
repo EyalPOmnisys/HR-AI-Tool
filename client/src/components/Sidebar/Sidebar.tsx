@@ -1,9 +1,11 @@
-﻿import styles from './Sidebar.module.css'
+﻿import { useState } from 'react'
+import styles from './Sidebar.module.css'
 import type { ReactNode, ReactElement } from 'react'
 import type { ScreenId } from '../../types/navigation'
 import logo from '../../assets/logo.png'
-import { IoFileTrayStackedSharp, IoSparklesSharp, IoLogOutOutline } from 'react-icons/io5'
+import { IoFileTrayStackedSharp, IoSparklesSharp, IoLogOutOutline, IoInformationCircleOutline } from 'react-icons/io5'
 import { MdOutlineWorkOutline } from 'react-icons/md'
+import { AboutModal } from '../common/AboutModal/AboutModal'
 
 type SidebarProps = {
   open: boolean
@@ -57,6 +59,8 @@ const ChevronIcon = () => (
 )
 
 export const Sidebar = ({ open, onToggle, activeItem, onSelect, onLogout }: SidebarProps): ReactElement => {
+  const [isAboutOpen, setIsAboutOpen] = useState(false)
+
   return (
     <aside className={`${styles.sidebar} ${open ? styles.open : styles.collapsed}`}>
       <div className={styles.inner}>
@@ -98,6 +102,18 @@ export const Sidebar = ({ open, onToggle, activeItem, onSelect, onLogout }: Side
         <div className={styles.bottomSection}>
           <button
             type='button'
+            className={styles.navItem}
+            title="About"
+            onClick={() => setIsAboutOpen(true)}
+          >
+            <span className={styles.navIcon} aria-hidden>
+              <IoInformationCircleOutline size={18} />
+            </span>
+            <span className={styles.navText}>About</span>
+          </button>
+
+          <button
+            type='button'
             className={`${styles.navItem} ${styles.logoutBtn}`}
             title="Logout"
             onClick={onLogout}
@@ -121,6 +137,8 @@ export const Sidebar = ({ open, onToggle, activeItem, onSelect, onLogout }: Side
           </button>
         </div>
       </div>
+
+      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
     </aside>
   )
 }
