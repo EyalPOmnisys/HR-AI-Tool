@@ -918,6 +918,15 @@ def llm_end_to_end_enhance(parsed_text: str, base_json: Dict[str, Any]) -> Dict[
     if extraction.get("skills") is None:
         extraction["skills"] = []
 
+    # The LLM occasionally returns experience/education entries as plain strings
+    # instead of objects; drop those so entry.get(...) below cannot crash.
+    dropped_roles = [r for r in extraction["experience"] if not isinstance(r, dict)]
+    if dropped_roles:
+        logger.warning("Dropping %d non-dict experience entries: %s", len(dropped_roles), dropped_roles[:3])
+        extraction["experience"] = [r for r in extraction["experience"] if isinstance(r, dict)]
+    if any(not isinstance(e, dict) for e in extraction["education"]):
+        extraction["education"] = [e for e in extraction["education"] if isinstance(e, dict)]
+
     # Normalize date field names and values
     for role in extraction.get("experience") or []:
         # Handle both "start"/"end" and "start_date"/"end_date" field names
