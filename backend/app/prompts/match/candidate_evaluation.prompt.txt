@@ -307,8 +307,8 @@ JSON OUTPUT FOR THIS CANDIDATE:
 {
   "resume_id": "uuid-of-candidate-a",
   "final_score": 5,
-  "strengths": "• Strong foundation in Python, R, and data science libraries\n• Good academic background in Statistics\n• Some experience with SQL databases",
-  "concerns": "• NO web development skills - missing ALL required technologies\n• Role mismatch: Data Science student vs Full Stack Developer\n• Insufficient professional experience: 1.9 years vs 5 years required"
+  "strengths": "• בסיס חזק ב-Python, R וספריות Data Science\n• רקע אקדמי טוב בסטטיסטיקה\n• ניסיון מסוים עם בסיסי נתונים SQL",
+  "concerns": "• אין כישורי פיתוח Web - חסרות כל הטכנולוגיות הנדרשות\n• חוסר התאמה בתפקיד: סטודנט Data Science מול משרת Full Stack\n• ניסיון מקצועי לא מספק: 1.9 שנים מול 5 שנים נדרשות"
 }
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -337,8 +337,8 @@ JSON OUTPUT FOR THIS CANDIDATE:
 {
   "resume_id": "uuid-of-candidate-b",
   "final_score": 87,
-  "strengths": "• Perfect title match - currently working as Full Stack Developer\n• Strong core skills: React, Node.js, MongoDB\n• Excellent content alignment: REST APIs, microservices",
-  "concerns": "• Only 2.9 years experience vs 5 years required\n• Missing TypeScript experience"
+  "strengths": "• התאמת תפקיד מושלמת - עובד כיום כ-Full Stack Developer\n• כישורי ליבה חזקים: React, Node.js, MongoDB\n• התאמת תוכן מצוינת: REST APIs, microservices",
+  "concerns": "• רק 2.9 שנות ניסיון מול 5 שנים נדרשות\n• חסר ניסיון ב-TypeScript"
 }
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -397,18 +397,21 @@ FIELDS EXPLANATION:
   • 0-39: Very poor fit, pass
 
 - strengths: STRING (not array!) with bullet-pointed list of 3-5 key strengths
-  • Format: "• Point 1\n• Point 2\n• Point 3"
+  • ⚠️ LANGUAGE: Write in HEBREW. Keep technology and tool names in English (React, Node.js, AWS).
+    The recruiters reading this are Hebrew speakers.
+  • Format: "• נקודה 1\n• נקודה 2\n• נקודה 3"
   • Use bullet character (•) followed by space
   • Separate with newline character (\n)
   • Be specific: mention actual skills, companies, years from resume
   • Focus on what makes them a fit for THIS specific job
 
 - concerns: STRING (not array!) with bullet-pointed list of 2-4 concerns.
-  • Format: "• Concern 1\n• Concern 2"
+  • ⚠️ LANGUAGE: Write in HEBREW. Keep technology and tool names in English.
+  • Format: "• חשש 1\n• חשש 2"
   • Be honest about skill gaps, experience mismatches, role differences
   • Mention missing required skills explicitly
-  • If the candidate is excellent, list minor potential gaps or areas to verify in interview (e.g., "Verify depth of experience in X").
-  • NEVER return "No concerns", "None", or "See above". Always provide actionable points for the interviewer.
+  • If the candidate is excellent, list minor potential gaps or areas to verify in interview (e.g., "לוודא בראיון עומק ניסיון ב-X").
+  • NEVER return "אין חששות", "No concerns", "None", or "See above". Always provide actionable points for the interviewer.
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL REMINDERS - READ BEFORE RESPONDING
@@ -430,5 +433,6 @@ CRITICAL REMINDERS - READ BEFORE RESPONDING
 ✓ Use "concerns" NOT "weaknesses"
 ✓ strengths/concerns must be STRING with \n, NOT array
 ✓ Use bullet character (•) at start of each point
+✓ strengths/concerns text must be in HEBREW (tech names stay in English)
 
 Now evaluate the candidates using the formula above!

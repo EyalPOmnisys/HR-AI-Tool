@@ -127,43 +127,53 @@ function hasNoConcerns(text: string | undefined | null): boolean {
     lower === 'no significant concerns identified' ||
     lower === 'no concerns' ||
     lower === 'none' ||
-    lower.startsWith('no significant concerns')
+    lower.startsWith('no significant concerns') ||
+    lower.startsWith('לא זוהו חששות') ||
+    lower.startsWith('אין חששות')
   )
 }
 
-// Helper: Format AI insights with proper line breaks and structure
+// Helper: Detect Hebrew content for RTL rendering
+function containsHebrew(text: string): boolean {
+  return /[֐-׿]/.test(text)
+}
+
+// Helper: Format AI insights with proper line breaks, structure and bidi handling.
+// Hebrew lines render RTL; embedded English tech names are bidi-isolated so
+// punctuation (like the category colon) stays attached to the Hebrew text.
 function formatAIInsight(text: string | undefined | null): React.ReactNode {
   if (!text) return ''
-  
+
   // Split by bullet points and format each line
   const lines = text
     .split('•')
     .filter(line => line.trim())
     .map((line, index) => {
       const trimmed = line.trim()
-      
+      const lineDir = containsHebrew(trimmed) ? 'rtl' : 'ltr'
+
       // Check if line starts with a category (ends with colon)
       const colonIndex = trimmed.indexOf(':')
       if (colonIndex > 0 && colonIndex < 40) {
         const category = trimmed.substring(0, colonIndex + 1)
         const content = trimmed.substring(colonIndex + 1).trim()
-        
+
         return (
-          <div key={index} style={{ marginBottom: '8px' }}>
-            <span style={{ fontWeight: 600, color: '#1f2937' }}>• {category}</span>
-            <span style={{ marginLeft: '4px' }}>{content}</span>
+          <div key={index} dir={lineDir} style={{ marginBottom: '8px', textAlign: 'start' }}>
+            <span style={{ fontWeight: 600, color: '#1f2937' }}>• <bdi>{category}</bdi></span>
+            <bdi style={{ marginInlineStart: '4px' }}>{content}</bdi>
           </div>
         )
       }
-      
+
       // No category, just format as regular bullet
       return (
-        <div key={index} style={{ marginBottom: '8px' }}>
-          • {trimmed}
+        <div key={index} dir={lineDir} style={{ marginBottom: '8px', textAlign: 'start' }}>
+          • <bdi>{trimmed}</bdi>
         </div>
       )
     })
-  
+
   return <>{lines}</>
 }
 
@@ -945,8 +955,8 @@ export default function Dashboard({ matchResults, selectedJob, showJobHeader = t
                           </div>
                         </div>
                       ) : (
-                        <div style={{ color: '#10b981', fontStyle: 'italic', padding: '8px' }}>
-                          ✓ No significant concerns
+                        <div dir="rtl" style={{ color: '#10b981', fontStyle: 'italic', padding: '8px', textAlign: 'start' }}>
+                          ✓ אין חששות משמעותיים
                         </div>
                       )}
                     </td>

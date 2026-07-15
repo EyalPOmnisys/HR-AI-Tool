@@ -20,6 +20,22 @@ CANDIDATE_EVALUATION_PROMPT = load_prompt("match/candidate_evaluation.prompt.txt
 logger = logging.getLogger("match.llm_judge")
 
 
+def _coerce_bullet_text(value: Any) -> str:
+    """Normalize a strengths/concerns field into a bullet string.
+
+    The model may return a plain string, a list of bullet strings, or None.
+    A list is joined with newlines (never str(list), which would leak the
+    Python repr like "['• ...']" into the UI).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(item).strip() for item in value if str(item).strip())
+    return str(value)
+
+
 class LLMJudge:
     """
     LLM-based candidate evaluation.
@@ -549,9 +565,11 @@ class LLMJudge:
                         # Try to extract negative points from reasoning if possible, otherwise provide a neutral message
                         concerns = "Please review the detailed analysis in the strengths section." if reasoning else "No specific concerns identified."
 
-                # Ensure they are strings
-                if not isinstance(strengths, str): strengths = str(strengths)
-                if not isinstance(concerns, str): concerns = str(concerns)
+                # Ensure they are strings. Models sometimes return a list of
+                # bullet strings; join with newlines instead of str(list), which
+                # would leak Python repr ("['• ...', '• ...']") into the UI.
+                strengths = _coerce_bullet_text(strengths)
+                concerns = _coerce_bullet_text(concerns)
 
                 results.append({
                     **candidate,
