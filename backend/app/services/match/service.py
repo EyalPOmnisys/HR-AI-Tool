@@ -125,7 +125,10 @@ class MatchService:
             # DELTA CALCULATION
             existing_resume_ids = {c.resume_id for c in existing_candidates}
             
-            stmt_all = select(Resume.id).where(Resume.extraction_json.isnot(None))
+            stmt_all = select(Resume.id).where(
+                Resume.extraction_json.isnot(None),
+                Resume.status.notin_(("duplicate", "error")),
+            )
             all_resume_ids = (await session.execute(stmt_all)).scalars().all()
             
             new_resume_ids = [rid for rid in all_resume_ids if rid not in existing_resume_ids]
@@ -370,7 +373,27 @@ class MatchService:
         
         # Combine: Good first, then Bad (so user sees they were checked), then Unknown
         final_list = good_candidates + bad_candidates + unknown_candidates
-        
+
+        # Collapse near-duplicate people so the same candidate never appears twice.
+        # The Stage-1 status='duplicate' filter removes flagged dups, but the same
+        # person can still have several 'ready' rows (different CV versions with
+        # different emails/phones) that only share a name. Key on the normalized
+        # name and keep the first occurrence - the list is ordered good->bad->
+        # unknown and sorted by score within each group, so that is the best one.
+        # Trade-off: two distinct people with the identical name would be merged;
+        # rare, and far less harmful than showing one person repeatedly.
+        seen_identities: set[str] = set()
+        deduped_list = []
+        for candidate in final_list:
+            name = (candidate.get("contact", {}) or {}).get("name") or ""
+            identity = " ".join(name.lower().split())
+            if identity:
+                if identity in seen_identities:
+                    continue
+                seen_identities.add(identity)
+            deduped_list.append(candidate)
+        final_list = deduped_list
+
         # Helper for string conversion
         def _ensure_string(value):
             if isinstance(value, list):

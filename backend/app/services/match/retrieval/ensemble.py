@@ -124,8 +124,16 @@ async def search_and_score_candidates(
     # ===== STAGE 1: Candidate Selection (No RAG) =====
     logger.info("Stage 1: Candidate selection (no RAG) - loading resumes from DB...")
 
-    stmt = select(Resume).where(Resume.extraction_json.isnot(None))
-    
+    # Exclude resumes that must never appear in results: duplicates (same person
+    # ingested more than once) and hard failures. Without this the same candidate
+    # shows up several times and pollutes the top of the ranking.
+    EXCLUDED_STATUSES = ("duplicate", "error")
+
+    stmt = select(Resume).where(
+        Resume.extraction_json.isnot(None),
+        Resume.status.notin_(EXCLUDED_STATUSES),
+    )
+
     if specific_resume_ids:
         stmt = stmt.where(Resume.id.in_(specific_resume_ids))
     elif exclude_resume_ids:
