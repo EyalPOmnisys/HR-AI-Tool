@@ -1,3 +1,36 @@
+/* Satoshi self-hosted (the fontshare CDN did not load in the target browser).
+   Files in client/public/fonts/satoshi/. Weights map 1:1 to their files, so
+   text renders at its intended weight - a mismapped earlier attempt made every
+   weight render one step heavier, which read as "too bold". */
+@font-face {
+  font-family: 'Satoshi';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/satoshi/Satoshi-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Satoshi';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/satoshi/Satoshi-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Satoshi';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/satoshi/Satoshi-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Satoshi';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/satoshi/Satoshi-900.woff2') format('woff2');
+}
+
 :root {
   font-family: 'Satoshi', 'Rubik', 'Assistant', 'Segoe UI', sans-serif;
   line-height: 1.5;
