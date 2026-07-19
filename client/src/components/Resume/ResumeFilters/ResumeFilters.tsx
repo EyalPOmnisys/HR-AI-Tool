@@ -50,6 +50,14 @@ export const ResumeFilters = ({ onFilterChange, initialFilters, className, avail
   const [keywordInput, setKeywordInput] = useState('')
   const [excludeInput, setExcludeInput] = useState('')
 
+  // Sync when the parent sets filters programmatically (e.g. "search from job"
+  // pre-fills profession/skills). Guarded by content equality to avoid loops.
+  const initialKey = initialFilters ? JSON.stringify(initialFilters) : ''
+  useEffect(() => {
+    if (initialFilters) setFilters(initialFilters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey])
+
   const allProfessions = availableOptions?.professions || COMMON_PROFESSIONS
   const allSkills = availableOptions?.skills || COMMON_SKILLS
 

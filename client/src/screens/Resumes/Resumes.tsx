@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { FaRegFolderOpen, FaMagic, FaPaperPlane, FaSearch } from 'react-icons/fa'
+import { FaRegFolderOpen, FaMagic, FaPaperPlane, FaSearch, FaBriefcase, FaChevronDown } from 'react-icons/fa'
 
 import { ConfirmationModal } from '../../components/common/ConfirmationModal/ConfirmationModal'
 import { ResumeDetailPanel } from '../../components/Resume/ResumeDetail'
 import { ResumeFilters, type FilterState } from '../../components/Resume/ResumeFilters/ResumeFilters'
 import { ResumeTable, type TimeFilter } from '../../components/Resume/ResumeTable/ResumeTable'
 import { ResumeTableSkeleton } from '../../components/Resume/ResumeTable/ResumeTableSkeleton'
-import { getResumeDetail, listResumes, deleteResume, analyzeSearchQuery, getResumesBulk } from '../../services/resumes'
+import { getResumeDetail, listResumes, deleteResume, analyzeSearchQuery, getResumesBulk, getRelatedTitles } from '../../services/resumes'
+import { listJobs } from '../../services/jobs'
+import type { ApiJob } from '../../types/job'
 import type { ResumeDetail, ResumeSummary } from '../../types/resume'
+import { deriveFiltersFromJob } from '../../utils/jobToFilters'
 import styles from './Resumes.module.css'
 
 // Split a filter chip into OR-alternatives. Supports "C++ OR C#", "C++ | C#",
@@ -34,6 +37,18 @@ export const Resumes = (): ReactElement => {
   const [isAIMode, setIsAIMode] = useState<boolean>(false)
   const [aiPrompt, setAiPrompt] = useState<string>('')
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false)
+  const [jobs, setJobs] = useState<ApiJob[]>([])
+
+  // Active job-based ranking (self-contained: title + skills relevance, no match
+  // engine). Set when the user searches from a job. `titles` are AI-expanded
+  // related titles; matching one strongly implies fit.
+  const [jobRanking, setJobRanking] = useState<{
+    jobId: string
+    title: string
+    titles: string[]
+    skills: string[]
+    loadingTitles: boolean
+  } | null>(null)
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all')
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +62,55 @@ export const Resumes = (): ReactElement => {
   // Pagination State
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [itemsPerPage] = useState<number>(30)
+
+  // Load analyzed jobs once, for the "search from an existing job" picker.
+  useEffect(() => {
+    listJobs(0, 100)
+      .then((res) => setJobs(res.items.filter((j) => j.analysis_json)))
+      .catch((err) => console.error('Failed to load jobs for search:', err))
+  }, [])
+
+  const handleJobSelect = useCallback((jobId: string) => {
+    const job = jobs.find((j) => j.id === jobId)
+    if (!job) return
+    const derived = deriveFiltersFromJob(job)
+    // Title is the strongest narrower: pre-fill the Profession filter with the
+    // role title first (instant), then swap in AI-expanded related titles.
+    const roleTitle = job.analysis_json?.role_title || job.title || ''
+    setFilters({ ...derived, profession: roleTitle ? [roleTitle] : [] })
+    setIsAIMode(false) // reveal the pre-filled manual filters so the user can tweak
+    setJobRanking({ jobId, title: job.title, titles: roleTitle ? [roleTitle] : [], skills: derived.skills, loadingTitles: true })
+
+    getRelatedTitles(roleTitle)
+      .then((titles) => {
+        const list = titles.length ? titles : (roleTitle ? [roleTitle] : [])
+        setFilters((prev) => ({ ...prev, profession: list }))
+        setJobRanking((prev) =>
+          prev && prev.jobId === jobId ? { ...prev, titles: list, loadingTitles: false } : prev
+        )
+      })
+      .catch(() => setJobRanking((prev) => (prev && prev.jobId === jobId ? { ...prev, loadingTitles: false } : prev)))
+  }, [jobs])
+
+  // Self-contained relevance: how strongly a resume fits the selected job by
+  // TITLE (dominant) and skills. No match engine involved.
+  const relevanceScore = useCallback((r: ResumeSummary, ranking: NonNullable<typeof jobRanking>): number => {
+    const prof = (r.profession || '').toLowerCase()
+    let titleScore = 0
+    for (const t of ranking.titles) {
+      const tl = t.trim().toLowerCase()
+      if (!tl) continue
+      if (prof === tl) { titleScore = Math.max(titleScore, 100); break } // exact title
+      if (prof.includes(tl) || tl.includes(prof)) titleScore = Math.max(titleScore, 60) // contains
+    }
+    const skills = (r.skills || []).map((s) => s.toLowerCase())
+    let skillHits = 0
+    for (const s of ranking.skills) {
+      const t = s.toLowerCase()
+      if (skills.some((rs) => rs.includes(t))) skillHits += 1
+    }
+    return titleScore + Math.min(skillHits, 10) * 2 // title dominates, skills refine
+  }, [])
 
   const handleAiSubmit = useCallback(async () => {
     if (!aiPrompt.trim() || isAiLoading) return
@@ -310,8 +374,18 @@ export const Resumes = (): ReactElement => {
       })
     }
 
+    // Job-based ranking: best title/skills fit first, newest as tiebreak.
+    if (jobRanking) {
+      result = [...result].sort((a, b) => {
+        const diff = relevanceScore(b, jobRanking) - relevanceScore(a, jobRanking)
+        if (diff !== 0) return diff
+        return new Date((b as { createdAt?: string }).createdAt || 0).getTime() -
+               new Date((a as { createdAt?: string }).createdAt || 0).getTime()
+      })
+    }
+
     return result
-  }, [allResumes, query, filters, timeFilter])
+  }, [allResumes, query, filters, timeFilter, jobRanking, relevanceScore])
 
   // 3. Reset page when filters change
   useEffect(() => {
@@ -522,10 +596,57 @@ export const Resumes = (): ReactElement => {
                 <FaMagic className={styles.magicIcon} />
                 AI will analyze your request and apply advanced filters automatically
               </div>
+
+              <div className={styles.jobPickerDivider}>
+                <span>or start from an existing job</span>
+              </div>
+              <div className={styles.jobPickerWrap}>
+                <FaBriefcase className={styles.jobPickerIcon} />
+                <select
+                  className={styles.jobPickerSelect}
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) handleJobSelect(e.target.value)
+                    e.target.value = ''
+                  }}
+                >
+                  <option value="" disabled>
+                    Select a job to auto-fill filters…
+                  </option>
+                  {jobs.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {job.icon ? `${job.icon} ` : ''}{job.title}
+                    </option>
+                  ))}
+                </select>
+                <FaChevronDown className={styles.jobPickerChevron} />
+              </div>
             </div>
           )}
         </div>
       </header>
+
+      {jobRanking && (
+        <div className={styles.rankingBar}>
+          <span className={styles.rankingBadge}>
+            <FaMagic size={11} />
+            Ranked by fit to: <strong>{jobRanking.title}</strong>
+            <span className={styles.rankingCount}>
+              {jobRanking.loadingTitles
+                ? 'expanding titles…'
+                : `${jobRanking.titles.length} related titles`}
+            </span>
+          </span>
+          <button
+            type="button"
+            className={styles.rankingClear}
+            onClick={() => setJobRanking(null)}
+            title="Remove ranking (back to newest first)"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className={styles.body}>
         <div className={styles.listWrapper}>{listContent}</div>

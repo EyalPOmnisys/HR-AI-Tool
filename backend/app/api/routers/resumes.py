@@ -30,6 +30,13 @@ def analyze_search(query: str = Query(..., min_length=1)):
     return search_service.analyze_search_query(query)
 
 
+@router.get("/search/related-titles", response_model=list[str])
+def related_titles(title: str = Query(..., min_length=1)):
+    """AI-expand a role title into closely related job titles for title-based
+    narrowing of the resume search (independent of the match engine)."""
+    return search_service.expand_related_titles(title)
+
+
 @router.get("", response_model=ResumeListOut)
 def list_resumes(
     db: Session = Depends(get_db),

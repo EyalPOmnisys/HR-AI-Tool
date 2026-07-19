@@ -47,3 +47,47 @@ def analyze_search_query(query: str) -> ResumeSearchAnalysis:
     logger.info(f"Parsed analysis result: {result}")
     return result
 
+
+def expand_related_titles(title: str) -> list[str]:
+    """Use the LLM to expand a role title into the job titles that strong
+    candidates would realistically have on their resume - synonyms, adjacent
+    roles, and seniority variants (e.g. "DevOps Engineer" -> Platform Engineer,
+    SRE, Infrastructure Engineer, Senior DevOps...).
+
+    Powers title-based narrowing of resume search: title is a far stronger and
+    tighter filter than skills alone, and one exact title misses phrasing
+    variants ("System Analyst" vs "Systems Analyst"). Returns the original
+    title plus related ones. Falls back to just the original on any error.
+    """
+    title = (title or "").strip()
+    if not title:
+        return []
+
+    logger.info(f"Expanding related titles for: {title}")
+    system = (
+        "You are an expert technical recruiter. Given a JOB TITLE, list the job "
+        "titles that STRONG candidates for this role realistically have on their "
+        "resume: close synonyms, adjacent roles, and common seniority variants "
+        "(Junior/Senior/Lead). Stay tight and on-domain - do NOT drift to unrelated "
+        "fields. Include singular/plural and common spellings. "
+        'Return ONLY JSON: {"titles": ["...", "..."]} with 6-12 short titles.'
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"Job title: {title}"},
+    ]
+    resp = default_llm_client.chat_json(messages=messages)
+    data = resp.data or {}
+    if "__llm_error__" in data:
+        logger.error(f"related-titles LLM error: {data}")
+        return [title]
+
+    raw = data.get("titles") or data.get("related_titles") or data.get("job_titles") or []
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in [title] + list(raw):
+        if isinstance(t, str) and t.strip() and t.strip().lower() not in seen:
+            out.append(t.strip())
+            seen.add(t.strip().lower())
+    return out[:12]
+

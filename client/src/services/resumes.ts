@@ -135,6 +135,13 @@ export async function deleteResume(resumeId: string): Promise<void> {
   }
 }
 
+/** AI-expand a role title into closely related job titles for title narrowing. */
+export async function getRelatedTitles(title: string): Promise<string[]> {
+  const res = await fetch(`${API_URL}/resumes/search/related-titles?title=${encodeURIComponent(title)}`);
+  if (!res.ok) return [title];
+  return res.json();
+}
+
 export async function analyzeSearchQuery(query: string): Promise<FilterState> {
   const res = await fetch(`${API_URL}/resumes/search/analyze?query=${encodeURIComponent(query)}`, {
     method: 'POST',
